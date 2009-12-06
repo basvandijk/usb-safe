@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -47,7 +48,7 @@ module System.USB.Safe
     , getConfigDesc
     , dupConfig
 
-      -- * ConfigHandle
+      -- ** ConfigHandle
     , ConfigHandle
     , SettingAlreadySet
     , withConfigHandle
@@ -57,7 +58,7 @@ module System.USB.Safe
     , getInterfaces
     , getInterfaceDescs
 
-      -- * InterfaceHandle
+      -- ** InterfaceHandle
     , InterfaceHandle
     , withInterfaceHandle
 
@@ -66,7 +67,7 @@ module System.USB.Safe
     , getAlternates
     , getInterfaceDesc
 
-      -- * AlternateHandle
+      -- ** AlternateHandle
     , AlternateHandle
     , withAlternateHandle
 
@@ -74,12 +75,22 @@ module System.USB.Safe
     , Endpoint
     , getEndpoints
 
-      -- * EndpointHandle
+      -- ** EndpointHandle
     , EndpointHandle
     , filterEndpoints
-    , Direction(..), IN, OUT
-    , TransferType(..), CONTROL, ISOCHRONOUS, BULK, INTERRUPT
+
     , getEndpointDesc
+    , clearHalt
+
+      -- *** Direction
+    , In
+    , Out
+
+      -- *** TransferType
+    , Control
+    , Isochronous
+    , Bulk
+    , Interrupt
 
       -- * Endpoint I/O
     , ReadAction
@@ -88,7 +99,7 @@ module System.USB.Safe
     , ReadEndpoint(..)
     , WriteEndpoint(..)
 
-      -- * Control transfers
+      -- ** Control transfers
     , RequestType(..)
     , control
     , readControl
@@ -111,54 +122,126 @@ module System.USB.Safe
 -- Imports
 --------------------------------------------------------------------------------
 
-import Control.Concurrent         ( forkIO
-                                  , ThreadId
-                                  )
-import Control.Concurrent.STM     ( atomically
-                                  , TVar
-                                  , newTVarIO
-                                  , readTVar
-                                  , writeTVar
-                                  )
-import Control.Monad              ( when
-                                  , liftM4
-                                  )
-import Control.Monad.Trans        ( MonadIO
-                                  , liftIO
-                                  , lift
-                                  )
-import Control.Monad.Trans.Reader ( ReaderT
-                                  , runReaderT
-                                  , ask
-                                  )
-import Control.Monad.CatchIO      ( MonadCatchIO
-                                  , bracket
-                                  , bracket_
-                                  , block
-                                  )
-import Control.Exception          ( Exception
-                                  , throw
-                                  )
-import Data.Typeable              ( Typeable )
-import Data.IORef                 ( IORef
-                                  , newIORef
-                                  , readIORef
-                                  , modifyIORef
-                                  , atomicModifyIORef
-                                  )
-import Data.Word                  ( Word8
-                                  , Word16
-                                  )
-import Data.List                  ( filter )
-import qualified Data.ByteString as B
+import Control.Concurrent                         ( forkIO
+                                                  , ThreadId
+                                                  )
+import Control.Concurrent.STM                     ( atomically
+                                                  , TVar
+                                                  , newTVarIO
+                                                  , readTVar
+                                                  , writeTVar
+                                                  )
+import Control.Monad                              ( when
+                                                  , liftM4
+                                                  )
+import Control.Monad.Trans                        ( MonadIO
+                                                  , liftIO
+                                                  , lift
+                                                  )
+import Control.Monad.Trans.Reader                 ( ReaderT
+                                                  , runReaderT
+                                                  , ask
+                                                  )
+import Control.Monad.CatchIO                      ( MonadCatchIO
+                                                  , bracket
+                                                  , bracket_
+                                                  , block
+                                                  )
+import Control.Exception                          ( Exception
+                                                  , throw
+                                                  )
+import Data.Typeable                              ( Typeable )
+import Data.IORef                                 ( IORef
+                                                  , newIORef
+                                                  , readIORef
+                                                  , modifyIORef
+                                                  , atomicModifyIORef
+                                                  )
+import Data.Word                                  ( Word8
+                                                  , Word16
+                                                  )
+import Data.List                                  ( filter )
+import Data.ByteString                            ( ByteString )
 
-import Prelude.Unicode            ( (∘), (≡), (∧) )
+import Prelude.Unicode                            ( (∘), (≡), (∧) )
 
-import qualified System.USB as USB
+import qualified System.USB.Enumeration    as USB ( Device )
+import qualified System.USB.DeviceHandling as USB ( DeviceHandle
+                                                  , openDevice
+                                                  , closeDevice
+                                                  , getDevice
+
+                                                  , setConfig
+
+                                                  , InterfaceNumber
+                                                  , claimInterface
+                                                  , releaseInterface
+
+                                                  , setInterfaceAltSetting
+
+                                                  , clearHalt
+
+                                                  , kernelDriverActive
+                                                  , detachKernelDriver
+                                                  , attachKernelDriver
+                                                  )
+import qualified System.USB.Descriptors    as USB ( deviceDesc
+                                                  , deviceConfigs
+
+                                                  , ConfigDesc
+                                                  , configValue
+                                                  , configInterfaces
+
+                                                  , Interface
+
+                                                  , InterfaceDesc
+                                                  , interfaceNumber
+                                                  , interfaceAltSetting
+                                                  , interfaceEndpoints
+
+                                                  , EndpointDesc
+                                                  , endpointAddress
+                                                  , endpointAttribs
+
+                                                  , EndpointAddress
+                                                  , direction
+
+                                                  , Direction(In, Out)
+                                                  , TransferType( Control
+                                                                , Isochronous
+                                                                , Bulk
+                                                                , Interrupt
+                                                                )
+
+                                                  , getLanguages
+                                                  , LangId
+                                                  , StrIx
+                                                  , getStrDesc
+                                                  , getStrDescFirstLang
+                                                  )
+import qualified System.USB.IO.Synchronous as USB ( ReadAction
+                                                  , WriteAction
+
+                                                  , Timeout
+                                                  , Size
+
+                                                  , RequestType(Class, Vendor)
+                                                  , Recipient
+
+                                                  , control
+                                                  , readControl
+                                                  , writeControl
+
+                                                  , readBulk
+                                                  , readInterrupt
+
+                                                  , writeBulk
+                                                  , writeInterrupt
+                                                  )
 
 
 --------------------------------------------------------------------------------
--- DeviceRegion
+-- * DeviceRegion
 --------------------------------------------------------------------------------
 
 newtype DeviceRegion s m α = DeviceRegion
@@ -173,11 +256,6 @@ data OpenedDevice = OpenedDevice USB.DeviceHandle
 type RefCntIORef             = IORef Int
 type ConfigAlreadySetTVar    = TVar Bool
 type AlternateAlreadySetTVar = TVar Bool
-
-
---------------------------------------------------------------------------------
--- Running DeviceRegions
---------------------------------------------------------------------------------
 
 runDeviceRegion ∷ MonadCatchIO m ⇒ (∀ s. DeviceRegion s m α) → m α
 runDeviceRegion m = runWith [] m
@@ -212,7 +290,7 @@ incrementRefCnt (OpenedDevice _ refCntIORef _ _) =
                       (succ refCnt, ())
 
 --------------------------------------------------------------------------------
--- DeviceHandle
+-- * DeviceHandle
 --------------------------------------------------------------------------------
 
 newtype DeviceHandle (m ∷ * → *) = DeviceHandle OpenedDevice
@@ -256,7 +334,7 @@ getDevice = USB.getDevice ∘ internalDeviceHandle
 
 
 --------------------------------------------------------------------------------
--- ParentOf
+-- * ParentOf
 --------------------------------------------------------------------------------
 
 -- | The @ParentOf@ class declares the parent/child relationship between
@@ -298,7 +376,7 @@ instance TypeCast2'' () a a
 
 
 --------------------------------------------------------------------------------
--- Config
+-- * Config
 --------------------------------------------------------------------------------
 
 data Config (m ∷ * → *) = Config (DeviceHandle m) USB.ConfigDesc
@@ -324,7 +402,7 @@ dupConfig (Config devHndlC cfg) = do
 
 
 --------------------------------------------------------------------------------
--- ConfigHandle
+-- ** ConfigHandle
 --------------------------------------------------------------------------------
 
 newtype ConfigHandle s (m ∷ * → *) = ConfigHandle (Config m)
@@ -349,7 +427,7 @@ withConfigHandle config@(Config
                 f $ ConfigHandle config
 
 --------------------------------------------------------------------------------
--- Interface
+-- * Interface
 --------------------------------------------------------------------------------
 
 newtype Interface s (m ∷ * → *) = Interface Intrf
@@ -376,7 +454,7 @@ getInterfaceDescs (Interface (Intrf _ _ alts _)) = alts
 
 
 --------------------------------------------------------------------------------
--- InterfaceHandle
+-- ** InterfaceHandle
 --------------------------------------------------------------------------------
 
 newtype InterfaceHandle s (m ∷ * → *) = InterfaceHandle Intrf
@@ -392,7 +470,7 @@ withInterfaceHandle (Interface intrf@(Intrf devHndlI ifNum _ _)) f =
 
 
 --------------------------------------------------------------------------------
--- Alternate
+-- * Alternate
 --------------------------------------------------------------------------------
 
 newtype Alternate s (m ∷ * → *) = Alternate Alt
@@ -410,7 +488,7 @@ getInterfaceDesc (Alternate (Alt _ ifDesc _)) = ifDesc
 
 
 --------------------------------------------------------------------------------
--- AlternateHandle
+-- ** AlternateHandle
 --------------------------------------------------------------------------------
 
 newtype AlternateHandle s (m ∷ * → *) = AlternateHandle Alt
@@ -435,7 +513,7 @@ withAlternateHandle (Alternate alt@(Alt devHndlI
 
 
 --------------------------------------------------------------------------------
--- Endpoint
+-- * Endpoint
 --------------------------------------------------------------------------------
 
 data Endpoint s (m ∷ * → *) = Endpoint USB.DeviceHandle
@@ -447,74 +525,90 @@ getEndpoints (AlternateHandle (Alt devHndlI ifDesc _)) =
 
 
 --------------------------------------------------------------------------------
--- EndpointHandle
+-- ** EndpointHandle
 --------------------------------------------------------------------------------
 
 newtype EndpointHandle dir typ s (m ∷ * → *) = EndpointHandle (Endpoint s m)
 
-filterEndpoints ∷ Direction dir
-                → TransferType typ
-                → [Endpoint s m]
-                → [EndpointHandle dir typ s m]
-filterEndpoints dir typ = map EndpointHandle ∘ filter eqDirAndTyp
+filterEndpoints ∷ ∀ dir typ s m. (Direction dir, TransferType typ)
+                ⇒ [Endpoint s m] → [EndpointHandle dir typ s m]
+filterEndpoints = map EndpointHandle ∘ filter eqDirAndTyp
     where
       eqDirAndTyp (Endpoint _ endpointDesc) =
-            dir `eqDir` USB.direction (USB.endpointAddress endpointDesc)
-          ∧ typ `eqTyp` USB.endpointAttribs endpointDesc
-
-eqDir ∷ Direction dir → USB.Direction → Bool
-In  `eqDir` USB.In  = True
-Out `eqDir` USB.Out = True
-_   `eqDir` _       = False
-
-data Direction dir where
-    In  ∷ Direction IN
-    Out ∷ Direction OUT
-
-data IN
-data OUT
-
-eqTyp ∷ TransferType typ → USB.TransferType → Bool
-Control     `eqTyp` USB.Control           = True
-Isochronous `eqTyp` (USB.Isochronous _ _) = True
-Bulk        `eqTyp` USB.Bulk              = True
-Interrupt   `eqTyp` USB.Interrupt         = True
-_           `eqTyp` _                     = False
-
-data TransferType typ where
-    Control     ∷ TransferType CONTROL
-    Isochronous ∷ TransferType ISOCHRONOUS
-    Bulk        ∷ TransferType BULK
-    Interrupt   ∷ TransferType INTERRUPT
-
-data CONTROL
-data ISOCHRONOUS
-data BULK
-data INTERRUPT
+            eqDir (undefined :: dir) (USB.direction $ USB.endpointAddress endpointDesc)
+          ∧ eqTyp (undefined :: typ) (USB.endpointAttribs endpointDesc)
 
 getEndpointDesc ∷ EndpointHandle dir typ s m → USB.EndpointDesc
 getEndpointDesc (EndpointHandle (Endpoint _ endpointDesc)) = endpointDesc
 
+clearHalt ∷ (mP `ParentOf` mC, MonadIO mC)
+          ⇒ EndpointHandle dir typ s mP → mC ()
+clearHalt (EndpointHandle (Endpoint devHndlI endpointDesc)) =
+    liftIO $ USB.clearHalt devHndlI $ USB.endpointAddress endpointDesc
+
 
 --------------------------------------------------------------------------------
--- Endpoint I/O
+-- *** Direction
 --------------------------------------------------------------------------------
 
-type ReadAction  m = USB.Timeout → USB.Size → m (B.ByteString, Bool)
+class Direction dir where
+    eqDir ∷ dir → USB.Direction → Bool
+
+data In
+data Out
+
+instance Direction In where
+    eqDir _ = (≡ USB.In)
+
+instance Direction Out where
+    eqDir _ = (≡ USB.Out)
+
+
+--------------------------------------------------------------------------------
+-- *** TransferType
+--------------------------------------------------------------------------------
+
+data Control
+data Isochronous
+data Bulk
+data Interrupt
+
+class TransferType typ where
+    eqTyp ∷ typ → USB.TransferType → Bool
+
+instance TransferType Control where
+    eqTyp _ = (≡ USB.Control)
+
+instance TransferType Isochronous where
+    eqTyp _ (USB.Isochronous _ _) = True
+    eqTyp _ _ = False
+
+instance TransferType Bulk where
+    eqTyp _ = (≡ USB.Bulk)
+
+instance TransferType Interrupt where
+    eqTyp _ = (≡ USB.Interrupt)
+
+
+--------------------------------------------------------------------------------
+-- * Endpoint I/O
+--------------------------------------------------------------------------------
+
+type ReadAction  m = USB.Timeout → USB.Size → m (ByteString, Bool)
 
 class ReadEndpoint typ where
     readEndpoint ∷ (mP `ParentOf` mC, MonadIO mC)
-                 ⇒ EndpointHandle IN typ s mP → ReadAction mC
+                 ⇒ EndpointHandle In typ s mP → ReadAction mC
 
-instance ReadEndpoint BULK where
+instance ReadEndpoint Bulk where
     readEndpoint = readEndpointWith USB.readBulk
 
-instance ReadEndpoint INTERRUPT where
+instance ReadEndpoint Interrupt where
     readEndpoint = readEndpointWith USB.readInterrupt
 
 readEndpointWith ∷ (mP `ParentOf` mC, MonadIO mC)
                  ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.ReadAction)
-                 → EndpointHandle IN typ s mP → ReadAction mC
+                 → EndpointHandle In typ s mP → ReadAction mC
 readEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
     \timeout size → liftIO $ f devHndlI
                                 (USB.endpointAddress endpointDesc)
@@ -523,21 +617,21 @@ readEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
 
 --------------------------------------------------------------------------------
 
-type WriteAction m = USB.Timeout → B.ByteString → m (USB.Size, Bool)
+type WriteAction m = USB.Timeout → ByteString → m (USB.Size, Bool)
 
 class WriteEndpoint typ where
     writeEndpoint ∷ (mP `ParentOf` mC, MonadIO mC)
-                     ⇒ EndpointHandle OUT typ s mP → WriteAction mC
+                     ⇒ EndpointHandle Out typ s mP → WriteAction mC
 
-instance WriteEndpoint BULK where
+instance WriteEndpoint Bulk where
     writeEndpoint = writeEndpointWith USB.writeBulk
 
-instance WriteEndpoint INTERRUPT where
+instance WriteEndpoint Interrupt where
     writeEndpoint = writeEndpointWith USB.writeInterrupt
 
 writeEndpointWith ∷ (mP `ParentOf` mC, MonadIO mC)
                   ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.WriteAction)
-                  → EndpointHandle OUT typ s mP → WriteAction mC
+                  → EndpointHandle Out typ s mP → WriteAction mC
 writeEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
     \timeout bs → liftIO $ f devHndlI
                               (USB.endpointAddress endpointDesc)
@@ -545,7 +639,7 @@ writeEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
                               bs
 
 --------------------------------------------------------------------------------
--- Control transfers
+-- ** Control transfers
 --------------------------------------------------------------------------------
 
 data RequestType = Class | Vendor
@@ -650,7 +744,7 @@ writeControl devHndl reqType reqRecipient request value index = \timeout input �
 
 
 --------------------------------------------------------------------------------
--- Standard Device Requests
+-- *** Standard Device Requests
 --------------------------------------------------------------------------------
 
 {- TODO: Think about which of these to export:
@@ -681,7 +775,7 @@ synchFrame ∷ DeviceHandle → EndpointAddress → Timeout → IO Int
 -}
 
 --------------------------------------------------------------------------------
--- String descriptors
+-- * String descriptors
 --------------------------------------------------------------------------------
 
 getLanguages ∷ (mP `ParentOf` mC, MonadIO mC)
@@ -706,7 +800,7 @@ getStrDescFirstLang devHndl descStrIx size =
 
 
 --------------------------------------------------------------------------------
--- USB kernel drivers
+-- * USB kernel drivers
 --------------------------------------------------------------------------------
 
 kernelDriverActive ∷ (mP `ParentOf` mC, MonadIO mC)
@@ -735,7 +829,7 @@ withDetachedKernelDriver devHndl ifNum action =
 
 
 --------------------------------------------------------------------------------
--- Utils
+-- * Utils
 --------------------------------------------------------------------------------
 
 ifM ∷ Monad m ⇒ m Bool → m α → m α → m α

@@ -1,6 +1,7 @@
 
--- Maybe in 10 years time the following list of 13 language extensions can be
--- replaced by the single {-# LANGUAGE Agda #-}   ;-)
+-- For each language extension I explain why I need it at the first place I need
+-- it. So just do a textual search for them and you will see why I need so many
+-- of them:
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -11,9 +12,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 --------------------------------------------------------------------------------
@@ -113,7 +112,7 @@ module System.USB.Safe
     , getEndpoints
 
       -- ** Filtering endpoints
-    , EndpointHandle
+    , FilteredEndpoint
     , filterEndpoints
 
     , getEndpointDesc
@@ -277,14 +276,27 @@ import qualified System.USB.IO.Synchronous as USB ( ReadAction, WriteAction
 
 {-| A monad transformer in which 'USB.Device's can be opened wich are
 automatically closed on exit from the region.
+
+Note that regions can be nested. @pr@ (for parent region) is a monad which is
+usually the region which is running this region. However when you are running a
+'TopDeviceRegion' the parent region will be 'IO'.
 -}
-newtype DeviceRegionT s m α = DeviceRegionT (ReaderT (IORef [OpenedDevice]) m α)
+-- Note that for the kind signature on 'pr' I need: 'KindSignatures'
+-- Note that because I use unicode symbols I need: 'UnicodeSyntax'
+
+newtype DeviceRegionT s (pr ∷ * → *) α = DeviceRegionT
+    (ReaderT (IORef [OpenedDevice]) pr α)
+
     deriving ( Monad
              , MonadTrans
              , MonadIO
              , MonadCatchIO
              , MonadCont
              )
+
+    -- Note to automatically derive these instances I need:
+    -- 'GeneralizedNewtypeDeriving' which lets you derive instances of the type
+    -- you've wrapped.
 
 {-| Regions need to know the list of devices that have been opened in and
 duplicated to the region. Regions also need to be able to update that list when
@@ -304,7 +316,8 @@ around.
 Because eventually all regions have to be run in the @IO@ monad anyway I have
 choosen the latter for its better efficiency.
 -}
-unDeviceRegionT ∷ DeviceRegionT s m α → ReaderT (IORef [OpenedDevice]) m α
+unDeviceRegionT ∷ DeviceRegionT s pr α
+                → ReaderT (IORef [OpenedDevice]) pr α
 unDeviceRegionT (DeviceRegionT reader) = reader
 
 data OpenedDevice = OpenedDevice USB.DeviceHandle
@@ -339,7 +352,7 @@ type ConfigAlreadySetMVar = MVar Bool
 -- See: 'withAlternate'.
 type AlternateAlreadySetMVar = MVar Bool
 
-{-| Execute a region.
+{-| Execute a region inside its parent region @pr@.
 
 All 'USB.Device's which have been opened in the given region using 'openDevice',
 and which haven't been duplicated using 'dupDeviceHandle', will be closed on
@@ -352,7 +365,7 @@ Note the type variable @s@ of the region wich is only quantified over the region
 itself. This ensures that no values, that have a type which has @s@ in it, can
 be returned from this function. (Note the similarity with the @ST@ monad.)
 
-'DeviceHandle's are parameterised with the region in which they were created.
+'DeviceHandle's are parameterized by the region in which they were created.
 So device handles which were created by @openDevice@ in the given region have
 this @s@ in their type. This ensures that these device handles, which may have
 been closed on exit from this function, can't be returned by this function. This
@@ -362,12 +375,13 @@ Note that it is possible to run a region inside another region.
 
 /TODO: Say something more about this nesting of regions.../
 -}
-runDeviceRegionT ∷ MonadCatchIO m ⇒ (∀ s. DeviceRegionT s m α) → m α
+-- Note for the inner ∀ quantifier I need: 'RankNTypes'
+runDeviceRegionT ∷ MonadCatchIO pr ⇒ (∀ s. DeviceRegionT s pr α) → pr α
 runDeviceRegionT m = runWith [] m
 
-{-| A region which does not have parent regions and can be directly executed in
-'IO' by 'runTopDeviceRegion' or concurrently executed in another region by
-'forkTopDeviceRegion'.
+{-| A region which has 'IO' as its parent region which enables it to be directly
+executed in 'IO' by 'runTopDeviceRegion' or concurrently executed in another
+region by 'forkTopDeviceRegion'.
 -}
 type TopDeviceRegion s = DeviceRegionT s IO
 
@@ -383,16 +397,16 @@ Note that the forked region has the same type variable @s@ as the resulting
 region. This means that all 'DeviceHandle's which can be referenced in the
 resulting region can also be referenced in the forked region.
 -}
-forkTopDeviceRegion ∷ MonadIO m
+forkTopDeviceRegion ∷ MonadIO pr
                     ⇒ TopDeviceRegion s ()
-                    → DeviceRegionT s m ThreadId
+                    → DeviceRegionT s pr ThreadId
 forkTopDeviceRegion m = DeviceRegionT $ do
   openedDevicesIORef ← ask
   liftIO $ do openedDevices ← readIORef openedDevicesIORef
               block $ do mapM_ incrementRefCnt openedDevices
                          forkIO $ runWith openedDevices m
 
-runWith ∷ MonadCatchIO m ⇒ [OpenedDevice] → DeviceRegionT s m α → m α
+runWith ∷ MonadCatchIO pr ⇒ [OpenedDevice] → DeviceRegionT s pr α → pr α
 runWith openedDevices m =
     bracket (liftIO $ newIORef openedDevices)
             (\openedDevicesIORef → liftIO $ readIORef openedDevicesIORef >>=
@@ -417,10 +431,10 @@ mapDeviceRegionT ∷ (m α → n β) → DeviceRegionT s m α → DeviceRegionT 
 mapDeviceRegionT f = DeviceRegionT ∘ mapReaderT f ∘ unDeviceRegionT
 
 -- | Lift a 'catchError' operation to the new monad.
-liftCatch ∷ (m α → (e → m α) → m α)   -- ^ @catch@ on the argument monad.
-          → DeviceRegionT s m α       -- ^ Computation to attempt.
-          → (e → DeviceRegionT s m α) -- ^ Exception handler.
-          → DeviceRegionT s m α
+liftCatch ∷ (pr α → (e → pr α) → pr α) -- ^ @catch@ on the argument monad.
+          → DeviceRegionT s pr α       -- ^ Computation to attempt.
+          → (e → DeviceRegionT s pr α) -- ^ Exception handler.
+          → DeviceRegionT s pr α
 liftCatch f m h = DeviceRegionT $ Reader.liftCatch f
                                                    (unDeviceRegionT m)
                                                    (unDeviceRegionT ∘ h)
@@ -430,15 +444,16 @@ liftCatch f m h = DeviceRegionT $ Reader.liftCatch f
 -- * Opening devices
 --------------------------------------------------------------------------------
 
--- | A handle to an opened 'USB.Device'.
-newtype DeviceHandle (m ∷ * → *) = DeviceHandle OpenedDevice
+-- | A handle to an opened 'USB.Device' parameterized by the region @r@ in which
+-- it was created.
+newtype DeviceHandle (r ∷ * → *) = DeviceHandle OpenedDevice
 
-internalDeviceHandle ∷ DeviceHandle m → USB.DeviceHandle
+internalDeviceHandle ∷ DeviceHandle r → USB.DeviceHandle
 internalDeviceHandle (DeviceHandle (OpenedDevice devHndlI _ _ _)) = devHndlI
 
 {-| Open a device in a region.
 
-Note that the returned device handle is parameterised with the region in which
+Note that the returned device handle is parameterized by the region in which
 it was created. This is to ensure that device handles can never escape their
 region and to support operations on device handles that are used in a child
 region of the region in which the device was created.
@@ -455,8 +470,10 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-openDevice ∷ MonadCatchIO m
-           ⇒ USB.Device → DeviceRegionT s m (DeviceHandle (DeviceRegionT s m))
+openDevice ∷ MonadCatchIO pr
+           ⇒ USB.Device
+           → DeviceRegionT s pr
+               (DeviceHandle (DeviceRegionT s pr))
 openDevice dev = DeviceRegionT $ block $ newOpenedDevice >>= registerOpenedDevice
     where
       newOpenedDevice = liftIO $ liftM4 OpenedDevice (USB.openDevice dev)
@@ -484,12 +501,12 @@ Now in this child region you open the device @d1@:
         d1h <- openDevice d1
 @
 
-Note that @d1h :: DeviceHandle (DeviceRegion sC (DeviceRegion sP m))@ where @sC@
-is bound by the inner @runDeviceRegionT@ and @sP@ is bound by the outer
-@runDeviceRegionT@.
+Note that @d1h :: DeviceHandle (DeviceRegion cs (DeviceRegion ps ppr))@ where
+@cs@ is bound by the inner (child) @runDeviceRegionT@ and @ps@ is bound by the
+outer (parent) @runDeviceRegionT@.
 
 Suppose you want to use the resulting device handle @d1h@ in the /parent/ device
-region. You can't simply @return d1h@ because then the type variable @sC@,
+region. You can't simply @return d1h@ because then the type variable @cs@,
 escapes the inner region.
 
 However, if you duplicate the device handle you can safely return it.
@@ -499,26 +516,28 @@ However, if you duplicate the device handle you can safely return it.
         return d1hDup
 @
 
-Note that @d1hDup :: DeviceHandle (DeviceRegionT sP m)@
+Note that @d1hDup :: DeviceHandle (DeviceRegionT ps ppr)@
 
 Back in the parent region you can safely operate on @d1hDup@.
 -}
-dupDeviceHandle ∷ MonadCatchIO m
-                ⇒ DeviceHandle (DeviceRegionT sC (DeviceRegionT sP m))
-                  -- ^ A device handle created in @DeviceRegionT sC ...@ which
-                  --   must have a parent region @DeviceRegionT sP m@.
-                → DeviceRegionT sC (DeviceRegionT sP m)
-                     (DeviceHandle (DeviceRegionT sP m))
-                  -- ^ Yield a computation in @DeviceRegionT sC@ that returns
+dupDeviceHandle ∷ MonadCatchIO ppr
+                ⇒ DeviceHandle (DeviceRegionT cs (DeviceRegionT ps ppr))
+                  -- ^ A device handle created in @DeviceRegionT cs ...@ which
+                  --   must have a parent region @DeviceRegionT ps ppr@.
+                → DeviceRegionT cs (DeviceRegionT ps ppr)
+                     (DeviceHandle (DeviceRegionT ps ppr))
+                  -- ^ Yield a computation in @DeviceRegionT cs@ that returns
                   --   the duplicated device handle that can now be used in the
-                  --   parent region @DeviceRegionT sP m@.
+                  --   parent region @DeviceRegionT ps ppr@.
 dupDeviceHandle (DeviceHandle openedDevice) = DeviceRegionT $
     block $ do liftIO $ incrementRefCnt openedDevice
                lift $ DeviceRegionT $ registerOpenedDevice openedDevice
 
-registerOpenedDevice ∷ MonadIO m
+registerOpenedDevice ∷ MonadIO pr1
                      ⇒ OpenedDevice
-                     → ReaderT (IORef [OpenedDevice]) m (DeviceHandle m1)
+                     → ReaderT (IORef [OpenedDevice])
+                               pr1
+                               (DeviceHandle pr2)
 registerOpenedDevice openedDevice = do
   openedDevicesIORef ← ask
   liftIO $ modifyIORef openedDevicesIORef (openedDevice:)
@@ -529,14 +548,15 @@ function to the resulting device handle and runs the resulting region.
 
 Note that: @withDevice dev f = @'runDeviceRegionT'@ $ @'openDevice'@ dev >>= f@
 -}
-withDevice ∷ MonadCatchIO m
+withDevice ∷ MonadCatchIO pr
            ⇒ USB.Device
-           → (∀ s. DeviceHandle (DeviceRegionT s m) → DeviceRegionT s m α)
-           → m α
+           → (∀ s. DeviceHandle (DeviceRegionT s pr)
+                 → DeviceRegionT s pr α
+             ) → pr α
 withDevice dev f = runDeviceRegionT $ openDevice dev >>= f
 
 -- | Retrieve the device from the device handle.
-getDevice ∷ DeviceHandle m → USB.Device
+getDevice ∷ DeviceHandle region → USB.Device
 getDevice = USB.getDevice ∘ internalDeviceHandle
 
 
@@ -546,21 +566,21 @@ getDevice = USB.getDevice ∘ internalDeviceHandle
 
 -- TODO: Should I also provide monads-tf instances? Can I provide both?
 
-instance (MonadError e m) ⇒ MonadError e (DeviceRegionT s m) where
+instance MonadError e pr ⇒ MonadError e (DeviceRegionT s pr) where
     throwError = lift ∘ throwError
     catchError = liftCatch catchError
 
-instance MonadRWS r w st m ⇒ MonadRWS r w st (DeviceRegionT s m)
+instance MonadRWS r w st pr ⇒ MonadRWS r w st (DeviceRegionT s pr)
 
-instance MonadReader r m ⇒ MonadReader r (DeviceRegionT s m) where
+instance MonadReader r pr ⇒ MonadReader r (DeviceRegionT s pr) where
     ask   = lift ask
     local = mapDeviceRegionT ∘ local
 
-instance MonadState st m ⇒ MonadState st (DeviceRegionT s m) where
+instance MonadState st pr ⇒ MonadState st (DeviceRegionT s pr) where
     get = lift get
     put = lift ∘ put
 
-instance MonadWriter w m ⇒ MonadWriter w (DeviceRegionT s m) where
+instance MonadWriter w pr ⇒ MonadWriter w (DeviceRegionT s pr) where
     tell   = lift ∘ tell
     listen = mapDeviceRegionT listen
     pass   = mapDeviceRegionT pass
@@ -572,33 +592,50 @@ instance MonadWriter w m ⇒ MonadWriter w (DeviceRegionT s m) where
 
 {-| The @ParentOf@ class declares the parent/child relationship between regions.
 
-A region @p@ is the parent of region @c@ if they're either equivalent like:
+A region is the parent of another region if they're either equivalent like:
 
 @
-DeviceRegionT sP mP  `ParentOf`  DeviceRegionT sP mP
+DeviceRegionT ps parenRegion  `ParentOf`  DeviceRegionT ps parenRegion
 @
 
-or if @p@ is the parent of the parent of the child like:
+or if it is the parent of the parent of the child like:
 
 @
-DeviceRegionT sP mP  `ParentOf`  DeviceRegionT sC'''
-                                   (DeviceRegionT sC''
-                                     (...
-                                       (DeviceRegionT sC'
-                                         (DeviceRegionT sP mP))))
+DeviceRegionT ps ppr  `ParentOf`  DeviceRegionT cs
+                                    (DeviceRegionT pcs
+                                      (DeviceRegionT ppcs
+                                        (DeviceRegionT ps ppr)))
 @
 -}
-class (Monad mP, Monad mC) ⇒ mP `ParentOf` mC
+-- Note that to declare this class with multiple parameters I need:
+-- 'MultiParamTypeClasses'
 
-instance Monad m ⇒ ParentOf m m
+class (Monad pr, Monad cr) ⇒ pr `ParentOf` cr
 
-instance (Monad mC, TypeCast2 mC (DeviceRegionT s mC'), mP `ParentOf` mC')
-         ⇒ ParentOf mP mC
+-- Note that because 'r' apears twice in the instance's head I need:
+-- 'FlexibleInstances'
+
+instance Monad r ⇒ ParentOf r r
+
+-- Note that because the type constructor 'DeviceRegionT' apears in the
+-- instance's context I need: 'FlexibleContexts' or 'UndecidableInstances'
+
+-- And note that because of the type variable 's' and 'pcr' not occuring in the
+-- instance's head I need: 'UndecidableInstances'
+
+instance ( Monad cr
+         , cr `TypeCast2` (DeviceRegionT s pcr)
+         , pr `ParentOf` pcr
+         )
+         ⇒ ParentOf pr cr
 
 
 --------------------------------------------------------------------------------
 -- Type casting
 --------------------------------------------------------------------------------
+
+-- Note that to declare these classes with functional dependencies I need:
+-- 'FunctionalDependencies'
 
 class TypeCast2     (a ∷ * → *) (b ∷ * → *) |   a → b,   b → a
 class TypeCast2'  t (a ∷ * → *) (b ∷ * → *) | t a → b, t b → a
@@ -617,6 +654,10 @@ instance TypeCast2'' () a a
 
 The system will attempt to restore the previous configuration and alternate
 settings after the reset has completed.
+
+Note the @pr \`ParentOf\` cr@ which ensures that this function
+can be executed in any child region of the region in which the given device
+handle was created.
 
 You can only reset a device when all computations passed to 'withConfig' or
 'withActiveConfig' have been terminated. If you call @resetDevice@ and such a
@@ -641,8 +682,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-resetDevice ∷ (mP `ParentOf` mC, MonadIO mC)
-            ⇒ DeviceHandle mP → mC ()
+resetDevice ∷ (pr `ParentOf` cr, MonadIO cr)
+            ⇒ DeviceHandle pr → cr ()
 resetDevice (DeviceHandle (OpenedDevice devHndlI _ configAlreadySetMVar _)) =
     liftIO $ withMVar configAlreadySetMVar $ \configAlreadySet →
                if configAlreadySet
@@ -654,36 +695,42 @@ resetDevice (DeviceHandle (OpenedDevice devHndlI _ configAlreadySetMVar _)) =
 -- * Configurations
 --------------------------------------------------------------------------------
 
--- | A supported configuration of a 'USB.Device'.
-data Config (m ∷ * → *) = Config (DeviceHandle m) USB.ConfigDesc
+-- | A supported configuration of a 'USB.Device' parameterized by the region @r@
+-- in which it was created.
+data Config (r ∷ * → *) = Config (DeviceHandle r) USB.ConfigDesc
 
 {-| Retrieve the supported configurations from the device handle.
 
-Note that the configuration is parameterised by the same region in which the
+Note that the configuration is parameterized by the same region @r@ in which the
 device handle was created. This ensures you can never use a configuration
 outside that region.
 -}
-getConfigs ∷ DeviceHandle m → [Config m]
+getConfigs ∷ DeviceHandle r → [Config r]
 getConfigs devHndl = map (Config devHndl)
                    ∘ getConfigDescs
                    ∘ internalDeviceHandle
                    $ devHndl
 
-getConfigDescs ∷ USB.DeviceHandle -> [USB.ConfigDesc]
+getConfigDescs ∷ USB.DeviceHandle → [USB.ConfigDesc]
 getConfigDescs = USB.deviceConfigs ∘ USB.deviceDesc ∘ USB.getDevice
 
 -- | Retrieve the configuration descriptor from the given configuration.
-getConfigDesc ∷ Config m → USB.ConfigDesc
+getConfigDesc ∷ Config r → USB.ConfigDesc
 getConfigDesc (Config _ configDesc) = configDesc
 
 {-| Duplicate a configuration in the parent region.
 
 Also see: 'dupDeviceHandle'.
 -}
-dupConfig ∷ MonadCatchIO m
-          ⇒ Config (DeviceRegionT sC (DeviceRegionT sP m))
-          → DeviceRegionT sC (DeviceRegionT sP m)
-               (Config (DeviceRegionT sP m))
+dupConfig ∷ MonadCatchIO ppr
+          ⇒ Config (DeviceRegionT cs (DeviceRegionT ps ppr))
+            -- ^ A configuration created in @DeviceRegionT cs ...@ which
+            --   must have a parent region @DeviceRegionT ps ppr@.
+          → DeviceRegionT cs (DeviceRegionT ps ppr)
+               (Config (DeviceRegionT ps ppr))
+            -- ^ Yield a computation in @DeviceRegionT cs@ that returns
+            --   the duplicated configuration that can now be used in the
+            --   parent region @DeviceRegionT ps ppr@.
 dupConfig (Config devHndlC cfg) = do
   devHndlP ← dupDeviceHandle devHndlC
   return $ Config devHndlP cfg
@@ -693,8 +740,14 @@ dupConfig (Config devHndlC cfg) = do
 -- ** Setting configurations
 --------------------------------------------------------------------------------
 
--- | A handle to an active 'Config'.
-newtype ConfigHandle s (m ∷ * → *) = ConfigHandle (Config m)
+{-| A handle to an active 'Config' parameterized by the region @r@ in which it
+was created.
+
+You get a handle to a configuration using 'withConfig' or
+'withActiveConfig'. The type variable @sCfg@ is used to ensure that you can't
+return this handle from these functions.
+-}
+newtype ConfigHandle sCfg (r ∷ * → *) = ConfigHandle (Config r)
 
 {-| This exception can be thrown in:
 
@@ -711,6 +764,7 @@ newtype ConfigHandle s (m ∷ * → *) = ConfigHandle (Config m)
 to indicate that the device was already configured with a setting.
 -}
 data SettingAlreadySet = SettingAlreadySet deriving (Show, Typeable)
+-- Note to derive 'Typeable' I need: 'DeriveDataTypeable'
 
 instance Exception SettingAlreadySet
 
@@ -750,10 +804,10 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-withConfig ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-           ⇒ Config mP
-           → (∀ s. ConfigHandle s mP → mC α)
-           → mC α
+withConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+           ⇒ Config pr
+           → (∀ sCfg. ConfigHandle sCfg pr → cr α)
+           → cr α
 withConfig config@(Config
                    (DeviceHandle
                     (OpenedDevice devHndlI _ configAlreadySetMVar _))
@@ -762,7 +816,7 @@ withConfig config@(Config
       liftIO $ USB.setConfig devHndlI $ USB.configValue configDesc
       f $ ConfigHandle config
 
-withUnsettedMVar ∷ MonadCatchIO m ⇒ MVar Bool → m a → m a
+withUnsettedMVar ∷ MonadCatchIO m ⇒ MVar Bool → m α → m α
 withUnsettedMVar settingAlreadySetMVar =
     bracket_ (liftIO $ do settingAlreadySet ← takeMVar settingAlreadySetMVar
                           if settingAlreadySet
@@ -779,7 +833,7 @@ data NoActiveConfig = NoActiveConfig deriving (Show, Typeable)
 
 instance Exception NoActiveConfig
 
-{-| Apply the given function to the configuration handle of the currently active
+{-| Apply the given function to the configuration handle of the current active
 configuration of the given device handle.
 
 This function needs to determine the current active configuration. This
@@ -801,10 +855,10 @@ Exceptions:
 
  * Aanother 'USBException'.
 -}
-withActiveConfig ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-                 ⇒ DeviceHandle mP
-                 → (∀ s. ConfigHandle s mP → mC α)
-                 → mC α
+withActiveConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                 ⇒ DeviceHandle pr
+                 → (∀ sCfg. ConfigHandle sCfg pr → cr α)
+                 → cr α
 withActiveConfig devHndl@(DeviceHandle
                           (OpenedDevice devHndlI _ configAlreadySetMVar _ )) f =
     withUnsettedMVar configAlreadySetMVar $ do
@@ -823,8 +877,10 @@ getActiveConfigDesc devHndlI =
 -- * Interfaces
 --------------------------------------------------------------------------------
 
--- | A supported interface of a 'Config'.
-newtype Interface s (m ∷ * → *) = Interface Intrf
+{-| A supported interface of a 'Config' parameterized by the region @r@ in which
+it was created and the @sCfg@ of the configuration it is derived from.
+-}
+newtype Interface sCfg (r ∷ * → *) = Interface Intrf
 
 data Intrf = Intrf USB.DeviceHandle
                    USB.InterfaceNumber
@@ -833,24 +889,28 @@ data Intrf = Intrf USB.DeviceHandle
 
 {-| Retrieve the supported interfaces from the configuration handle.
 
-Note that the interface is parameterised by the same type variables as the
+Note that the interface is parameterized by the same type variables as the
 configuration handle. This ensures you can never use an interface outside the
 scope of the function passed to 'withConfig' or 'withActiveConfig'.
 -}
-getInterfaces ∷ ConfigHandle s m → [Interface s m]
+getInterfaces ∷ ConfigHandle sCfg r → [Interface sCfg r]
 getInterfaces (ConfigHandle
                (Config
                 (DeviceHandle
                  (OpenedDevice devHndlI _ _ alternateAlreadySetMVar))
                 configDesc)) =
-    map (\alts → Interface $ Intrf devHndlI
+    map newInterface $ USB.configInterfaces configDesc
+        where
+          newInterface alts = Interface
+                            $ Intrf devHndlI
                                     (USB.interfaceNumber $ head alts)
                                     alts
                                     alternateAlreadySetMVar
-        ) $ USB.configInterfaces configDesc
 
 -- | Retrieve the alternate interface descriptors of the interface.
-getInterfaceDescs ∷ Interface s m → USB.Interface
+--
+-- Note that: @type 'USB.Interface' = ['USB.InterfaceDesc']@.
+getInterfaceDescs ∷ Interface sCfg r → USB.Interface
 getInterfaceDescs (Interface (Intrf _ _ alts _)) = alts
 
 
@@ -858,8 +918,13 @@ getInterfaceDescs (Interface (Intrf _ _ alts _)) = alts
 -- ** Claiming and releasing interfaces
 --------------------------------------------------------------------------------
 
--- | A handle to a claimed 'Interface'.
-newtype InterfaceHandle s (m ∷ * → *) = InterfaceHandle Intrf
+{-| A handle to a /claimed/ 'Interface' parameterized with the region @r@ in
+which it was created.
+
+You get a handle to an interface using 'withInterface'. The type variable
+@sIntrf@ is used to ensure that you can't return this handle from this function.
+-}
+newtype InterfaceHandle sIntrf (r ∷ * → *) = InterfaceHandle Intrf
 
 {-| Claim the given interface, then apply the given function to the resulting
 interface handle and finally release the interface on exit from the function
@@ -882,10 +947,10 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-withInterface ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-              ⇒ Interface s mP
-              → (∀ s2. InterfaceHandle s2 mP → mC α)
-              → mC α
+withInterface ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+              ⇒ Interface sCfg pr
+              → (∀ sIntrf. InterfaceHandle sIntrf pr → cr α)
+              → cr α
 withInterface (Interface intrf@(Intrf devHndlI ifNum _ _)) f =
     bracket_ (liftIO $ USB.claimInterface   devHndlI ifNum)
              (liftIO $ USB.releaseInterface devHndlI ifNum)
@@ -896,8 +961,9 @@ withInterface (Interface intrf@(Intrf devHndlI ifNum _ _)) f =
 -- * Alternates
 --------------------------------------------------------------------------------
 
--- | A supported 'Interface' alternate setting.
-newtype Alternate s (m ∷ * → *) = Alternate Alt
+-- | A supported 'Interface' alternate setting parameterized by the region @r@
+-- in which it was created and the @sIntrf@ of the interface it is derived from.
+newtype Alternate sIntrf (r ∷ * → *) = Alternate Alt
 
 data Alt = Alt USB.DeviceHandle
                USB.InterfaceDesc
@@ -905,16 +971,16 @@ data Alt = Alt USB.DeviceHandle
 
 {-| Retrieve the supported alternate settings from the interface handle.
 
-Note that the alternate setting is parameterised by the same type variables as
+Note that the alternate setting is parameterized by the same type variables as
 the interface handle. This ensures you can never use an alternate setting
 outside the scope of the function passed to 'withInterface'.
 -}
-getAlternates ∷ InterfaceHandle s m → [Alternate s m]
+getAlternates ∷ InterfaceHandle sIntrf r → [Alternate sIntrf r]
 getAlternates (InterfaceHandle (Intrf devHndlI _ alts alternateAlreadySetMVar)) =
     map (\alt → Alternate $ Alt devHndlI alt alternateAlreadySetMVar) alts
 
 -- | Retrieve the interface descriptor of this alternate setting.
-getInterfaceDesc ∷ Alternate s m → USB.InterfaceDesc
+getInterfaceDesc ∷ Alternate sIntrf r → USB.InterfaceDesc
 getInterfaceDesc (Alternate (Alt _ ifDesc _)) = ifDesc
 
 
@@ -922,8 +988,14 @@ getInterfaceDesc (Alternate (Alt _ ifDesc _)) = ifDesc
 -- ** Setting alternates
 --------------------------------------------------------------------------------
 
--- | A handle to a setted alternate setting.
-newtype AlternateHandle s (m ∷ * → *) = AlternateHandle Alt
+{-| A handle to a setted alternate setting parameterized by the region @r@ in
+which it was created.
+
+You get a handle to an alternate using 'withAlternate' or
+'withActiveAlternate'. The type variable @sAlt@ is used to ensure that you can't
+return this handle from these functions.
+-}
+newtype AlternateHandle sAlt (r ∷ * → *) = AlternateHandle Alt
 
 {-| Activate an alternate setting for an interface and then apply the given
 function to the resulting alternate handle.
@@ -935,7 +1007,7 @@ until the computation passed to these functions terminates. If you do try to set
 one a 'SettingAlreadySet' exception will be thrown.
 
 The operating system may already have set an alternate for the interface. If you
-want to use this currently active alternate use 'withActiveAlternate'.
+want to use this current active alternate use 'withActiveAlternate'.
 
 This is a blocking function.
 
@@ -948,9 +1020,9 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-withAlternate ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-              ⇒ Alternate s mP
-              → (∀ s2. AlternateHandle s2 mP → mC α) → mC α
+withAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+              ⇒ Alternate sIntrf pr
+              → (∀ sAlt. AlternateHandle sAlt pr → cr α) → cr α
 withAlternate (Alternate alt@(Alt devHndlI
                                   ifDesc
                                   alternateAlreadySetMVar
@@ -963,7 +1035,7 @@ withAlternate (Alternate alt@(Alt devHndlI
                (USB.interfaceAltSetting ifDesc)
     f $ AlternateHandle alt
 
-{-| Apply the given function to the alternate handle of the currently active
+{-| Apply the given function to the alternate handle of the current active
 alternate of the give interface handle.
 
 To determine the current active alternate this function will block while a
@@ -982,9 +1054,9 @@ Exceptions:
  * Aanother 'USBException'.
 
 -}
-withActiveAlternate ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-                    ⇒ InterfaceHandle s mP
-                    → (∀ s2. AlternateHandle s2 mP → mC α) → mC α
+withActiveAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                    ⇒ InterfaceHandle sIntrf pr
+                    → (∀ sAlt. AlternateHandle sAlt pr → cr α) → cr α
 withActiveAlternate (InterfaceHandle
                      (Intrf devHndlI ifNum alts alternateAlreadySetMVar)) f =
     withUnsettedMVar alternateAlreadySetMVar $ do
@@ -999,17 +1071,18 @@ withActiveAlternate (InterfaceHandle
 -- * Endpoints
 --------------------------------------------------------------------------------
 
--- | A supported endpoint from an 'Alternate'.
-data Endpoint s (m ∷ * → *) = Endpoint USB.DeviceHandle
-                                       USB.EndpointDesc
+-- | A supported endpoint from an 'Alternate' parameterized by the region @r@ in
+-- which it was created and the @sAlt@ of the alternate it is derived from.
+data Endpoint sAlt (r ∷ * → *) = Endpoint USB.DeviceHandle
+                                          USB.EndpointDesc
 
 {-| Retrieve the supported endpoints from the alternate handle.
 
-Note that the endpoint is parameterised by the same type variables as the
+Note that the endpoint is parameterized by the same type variables as the
 alternate handle. This ensures you can never use an endpoint outside the scope
 of the function passed to 'withAlternate' or 'withActiveAlternate'.
 -}
-getEndpoints ∷ AlternateHandle s m → [Endpoint s m]
+getEndpoints ∷ AlternateHandle sAlt r → [Endpoint sAlt r]
 getEndpoints (AlternateHandle (Alt devHndlI ifDesc _)) =
     map (Endpoint devHndlI) $ USB.interfaceEndpoints ifDesc
 
@@ -1027,40 +1100,46 @@ endpoint transfer types like: 'Bulk' and 'Interrupt'. I/O with endpoints of
 other transfer types like 'Control' and 'Isochronous' is not possible.
 
 This type lifts the transfer direction and transfer type information to the
-type-level so that I/O operations can specify which endpoints they support.
+type-level so that I/O operations like 'readEndpoint' and 'writeEndpoint' can
+specify which endpoints they support.
+
+The reason it is called a @FilteredEndpoint@ is that to create it you have to
+/filter/ a list of 'Endpoint's with 'filterEndpoints'.
 -}
-newtype EndpointHandle transDir
-                       transType
-                       s (m ∷ * → *) = EndpointHandle (Endpoint s m)
+newtype FilteredEndpoint transDir
+                         transType
+                         sAlt (r ∷ * → *) = FilteredEndpoint (Endpoint sAlt r)
 
 {-| The 'Endpoint' type is not rich enough to encode the transfer direction and
 transfer type. In order to introduce this type information we have to filter the
-list of endpoints and get back a list of endpoint handles which have the
-specified transfer direction and transfer type and also expres this in their
-type.
+list of endpoints and get back a list of filtered endpoints which have the
+specified transfer direction and transfer type and also expres this information
+in their type.
 -}
 filterEndpoints ∷ ∀ transDir
                     transType
-                    s m. ( TransferDirection transDir
-                         , TransferType      transType
-                         )
-                ⇒ [Endpoint s m] → [EndpointHandle transDir
-                                                   transType
-                                                   s m
-                                   ]
-filterEndpoints = map EndpointHandle ∘ filter eqTransDirAndTransType
+                    sAlt r. ( TransferDirection transDir
+                            , TransferType      transType
+                            )
+                ⇒ [Endpoint sAlt r] → [FilteredEndpoint transDir
+                                                        transType
+                                                        sAlt r
+                                      ]
+filterEndpoints = map FilteredEndpoint ∘ filter eqTransDirAndTransType
     where
       eqTransDirAndTransType (Endpoint _ endpointDesc) =
          (undefined ∷ transDir)  `eqTransDir`  transDirUSB
        ∧ (undefined ∷ transType) `eqTransType` transTypeUSB
+      -- Note that to use the 'transDir' and 'transType' types inside this
+      -- function you need: 'ScopedTypeVariables'
         where
          transDirUSB  = USB.transferDirection $ USB.endpointAddress endpointDesc
          transTypeUSB = USB.endpointAttribs endpointDesc
 
 -- | Retrieve the endpoint descriptor from the given endpoint handle.
-getEndpointDesc ∷ EndpointHandle transDir transType s m
+getEndpointDesc ∷ FilteredEndpoint transDir transType sAlt r
                 → USB.EndpointDesc
-getEndpointDesc (EndpointHandle (Endpoint _ endpointDesc)) = endpointDesc
+getEndpointDesc (FilteredEndpoint (Endpoint _ endpointDesc)) = endpointDesc
 
 {-| Clear the halt/stall condition for an endpoint.
 
@@ -1078,9 +1157,9 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-clearHalt ∷ (mP `ParentOf` mC, MonadIO mC)
-          ⇒ EndpointHandle transDir transType s mP → mC ()
-clearHalt (EndpointHandle (Endpoint devHndlI endpointDesc)) =
+clearHalt ∷ (pr `ParentOf` cr, MonadIO cr)
+          ⇒ FilteredEndpoint transDir transType sAlt pr → cr ()
+clearHalt (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
     liftIO $ USB.clearHalt devHndlI $ USB.endpointAddress endpointDesc
 
 
@@ -1096,6 +1175,9 @@ data Out; instance TransferDirection Out where eqTransDir _ = (≡ USB.Out)
 
 -- | In transfer direction (device -> host) used for reading.
 data In; instance TransferDirection In where eqTransDir _ = (≡ USB.In)
+
+-- Note that because these data types don't have definitions I need:
+-- 'EmptyDataDecls'
 
 
 --------------------------------------------------------------------------------
@@ -1142,7 +1224,7 @@ many bytes to read. The function returns an action which, when executed,
 performs the actual read and returns the bytestring that was read paired with an
 indication if the transfer timed out.
 -}
-type ReadAction m = USB.Timeout → USB.Size → m (ByteString, Bool)
+type ReadAction r = USB.Timeout → USB.Size → r (ByteString, Bool)
 
 {-| Class of transfer types that support reading.
 
@@ -1150,8 +1232,8 @@ type ReadAction m = USB.Timeout → USB.Size → m (ByteString, Bool)
 -}
 class TransferType transType => ReadEndpoint transType where
     -- | Read bytes from an 'In' endpoint.
-    readEndpoint ∷ (mP `ParentOf` mC, MonadIO mC)
-                 ⇒ EndpointHandle In transType s mP → ReadAction mC
+    readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
+                 ⇒ FilteredEndpoint In transType sAlt pr → ReadAction cr
 
 instance ReadEndpoint Bulk where
     readEndpoint = readEndpointWith USB.readBulk
@@ -1159,14 +1241,14 @@ instance ReadEndpoint Bulk where
 instance ReadEndpoint Interrupt where
     readEndpoint = readEndpointWith USB.readInterrupt
 
-readEndpointWith ∷ (mP `ParentOf` mC, MonadIO mC)
+readEndpointWith ∷ (pr `ParentOf` cr, MonadIO cr)
                  ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.ReadAction)
-                 → EndpointHandle In transType s mP → ReadAction mC
-readEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
+                 → FilteredEndpoint In transType sAlt pr → ReadAction cr
+readEndpointWith f (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
     \timeout size → liftIO $ f devHndlI
-                                (USB.endpointAddress endpointDesc)
-                                timeout
-                                size
+                               (USB.endpointAddress endpointDesc)
+                               timeout
+                               size
 
 --------------------------------------------------------------------------------
 
@@ -1177,7 +1259,7 @@ write. The function returns an action which, when exectued, returns the number
 of bytes that were actually written paired with an indication if the transfer
 timed out.
 -}
-type WriteAction m = USB.Timeout → ByteString → m (USB.Size, Bool)
+type WriteAction r = USB.Timeout → ByteString → r (USB.Size, Bool)
 
 {-| Class of transfer types that support writing
 
@@ -1185,8 +1267,8 @@ type WriteAction m = USB.Timeout → ByteString → m (USB.Size, Bool)
 -}
 class TransferType transType => WriteEndpoint transType where
     -- | Write bytes to an 'Out' endpoint.
-    writeEndpoint ∷ (mP `ParentOf` mC, MonadIO mC)
-                     ⇒ EndpointHandle Out transType s mP → WriteAction mC
+    writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
+                     ⇒ FilteredEndpoint Out transType sAlt pr → WriteAction cr
 
 instance WriteEndpoint Bulk where
     writeEndpoint = writeEndpointWith USB.writeBulk
@@ -1194,14 +1276,14 @@ instance WriteEndpoint Bulk where
 instance WriteEndpoint Interrupt where
     writeEndpoint = writeEndpointWith USB.writeInterrupt
 
-writeEndpointWith ∷ (mP `ParentOf` mC, MonadIO mC)
+writeEndpointWith ∷ (pr `ParentOf` cr, MonadIO cr)
                   ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.WriteAction)
-                  → EndpointHandle Out transType s mP → WriteAction mC
-writeEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
+                  → FilteredEndpoint Out transType sAlt pr → WriteAction cr
+writeEndpointWith f (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
     \timeout bs → liftIO $ f devHndlI
-                              (USB.endpointAddress endpointDesc)
-                              timeout
-                              bs
+                             (USB.endpointAddress endpointDesc)
+                             timeout
+                             bs
 
 --------------------------------------------------------------------------------
 -- ** Control transfers
@@ -1231,8 +1313,8 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-control ∷ (mP `ParentOf` mC, MonadIO mC)
-        ⇒ DeviceHandle mP -- ^ A handle for the device to communicate with.
+control ∷ (pr `ParentOf` cr, MonadIO cr)
+        ⇒ DeviceHandle pr -- ^ A handle for the device to communicate with.
         → RequestType     -- ^ The type of request.
         → USB.Recipient   -- ^ The recipient of the request.
         → Word8           -- ^ Request.
@@ -1241,7 +1323,7 @@ control ∷ (mP `ParentOf` mC, MonadIO mC)
         → USB.Timeout     -- ^ Timeout (in milliseconds) that this function should
                           --   wait before giving up due to no response being
                           --   received.  For no timeout, use value 0.
-        → mC ()
+        → cr ()
 control devHndl reqType reqRecipient request value index timeout =
     liftIO $ USB.control (internalDeviceHandle devHndl)
                          (reqTypeToInternal reqType)
@@ -1263,14 +1345,14 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-readControl ∷ (mP `ParentOf` mC, MonadIO mC)
-            ⇒ DeviceHandle mP -- ^ A handle for the device to communicate with.
+readControl ∷ (pr `ParentOf` cr, MonadIO cr)
+            ⇒ DeviceHandle pr -- ^ A handle for the device to communicate with.
             → RequestType     -- ^ The type of request.
             → USB.Recipient   -- ^ The recipient of the request.
             → Word8           -- ^ Request.
             → Word16          -- ^ Value.
             → Word16          -- ^ Index.
-            → ReadAction mC
+            → ReadAction cr
 readControl devHndl reqType reqRecipient request value index = \timeout size →
     liftIO $ USB.readControl (internalDeviceHandle devHndl)
                              (reqTypeToInternal reqType)
@@ -1293,14 +1375,14 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-writeControl ∷ (mP `ParentOf` mC, MonadIO mC)
-             ⇒ DeviceHandle mP -- ^ A handle for the device to communicate with.
+writeControl ∷ (pr `ParentOf` cr, MonadIO cr)
+             ⇒ DeviceHandle pr -- ^ A handle for the device to communicate with.
              → RequestType     -- ^ The type of request.
              → USB.Recipient   -- ^ The recipient of the request.
              → Word8           -- ^ Request.
              → Word16          -- ^ Value.
              → Word16          -- ^ Index.
-             → WriteAction mC
+             → WriteAction cr
 writeControl devHndl reqType reqRecipient request value index = \timeout input →
     liftIO $ USB.writeControl (internalDeviceHandle devHndl)
                               (reqTypeToInternal reqType)
@@ -1351,8 +1433,8 @@ synchFrame ∷ DeviceHandle → EndpointAddress → Timeout → IO Int
 
 This function may throw 'USBException's.
 -}
-getLanguages ∷ (mP `ParentOf` mC, MonadIO mC)
-             ⇒ DeviceHandle mP → mC [USB.LangId]
+getLanguages ∷ (pr `ParentOf` cr, MonadIO cr)
+             ⇒ DeviceHandle pr → cr [USB.LangId]
 getLanguages devHndl =
     liftIO $ USB.getLanguages (internalDeviceHandle devHndl)
 
@@ -1371,8 +1453,8 @@ given @StrIx@ and @LangId@ actually belong to the given @DeviceHandle@. In other
 words I would like to get a type error when they are some arbitrary number or
 come from another device.
 -}
-getStrDesc ∷ (mP `ParentOf` mC, MonadIO mC)
-             ⇒ DeviceHandle mP → USB.StrIx → USB.LangId → USB.Size → mC String
+getStrDesc ∷ (pr `ParentOf` cr, MonadIO cr)
+             ⇒ DeviceHandle pr → USB.StrIx → USB.LangId → USB.Size → cr String
 getStrDesc devHndl strIx langId size =
     liftIO $ USB.getStrDesc (internalDeviceHandle devHndl)
                             strIx
@@ -1388,8 +1470,8 @@ USB specifications.
 
 This function may throw 'USBException's.
 -}
-getStrDescFirstLang ∷ (mP `ParentOf` mC, MonadIO mC)
-                    ⇒ DeviceHandle mP → USB.StrIx → USB.Size → mC String
+getStrDescFirstLang ∷ (pr `ParentOf` cr, MonadIO cr)
+                    ⇒ DeviceHandle pr → USB.StrIx → USB.Size → cr String
 getStrDescFirstLang devHndl descStrIx size =
     liftIO $ USB.getStrDescFirstLang (internalDeviceHandle devHndl)
                                      descStrIx
@@ -1411,8 +1493,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-kernelDriverActive ∷ (mP `ParentOf` mC, MonadIO mC)
-                   ⇒ DeviceHandle mP → USB.InterfaceNumber → mC Bool
+kernelDriverActive ∷ (pr `ParentOf` cr, MonadIO cr)
+                   ⇒ DeviceHandle pr → USB.InterfaceNumber → cr Bool
 kernelDriverActive devHndl =
     liftIO ∘ USB.kernelDriverActive (internalDeviceHandle devHndl)
 
@@ -1430,8 +1512,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-detachKernelDriver ∷ (mP `ParentOf` mC, MonadIO mC)
-                   ⇒ DeviceHandle mP → USB.InterfaceNumber → mC ()
+detachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
+                   ⇒ DeviceHandle pr → USB.InterfaceNumber → cr ()
 detachKernelDriver devHndl =
     liftIO ∘ USB.detachKernelDriver (internalDeviceHandle devHndl)
 
@@ -1451,8 +1533,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-attachKernelDriver ∷ (mP `ParentOf` mC, MonadIO mC)
-                   ⇒ DeviceHandle mP → USB.InterfaceNumber → mC ()
+attachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
+                   ⇒ DeviceHandle pr → USB.InterfaceNumber → cr ()
 attachKernelDriver devHndl =
     liftIO ∘ USB.attachKernelDriver (internalDeviceHandle devHndl)
 
@@ -1468,8 +1550,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-withDetachedKernelDriver ∷ (mP `ParentOf` mC, MonadCatchIO mC)
-                         ⇒ DeviceHandle mP → USB.InterfaceNumber → mC α → mC α
+withDetachedKernelDriver ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                         ⇒ DeviceHandle pr → USB.InterfaceNumber → cr α → cr α
 withDetachedKernelDriver devHndl ifNum action =
     ifM (kernelDriverActive devHndl ifNum)
         (bracket_ (detachKernelDriver devHndl ifNum)

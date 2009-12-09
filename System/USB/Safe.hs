@@ -729,7 +729,8 @@ Exceptions:
 
  * 'NoDeviceException' if the device has been disconnected
 
- * 'SettingAlreadySet' if a configuration has already been set.
+ * 'SettingAlreadySet' if a configuration has already been set using
+   'withConfig' or 'withActiveConfig'.
 
  * Another 'USBException'.
 -}
@@ -1192,7 +1193,7 @@ writeEndpointWith f (EndpointHandle (Endpoint devHndlI endpointDesc)) =
 
 {-| Control transfers can have three request types: @Standard@, @Class@ and
 @Vendor@. We disallow @Standard@ requests however because with them you can
-destrow the safety guarantees that this module provides.
+destroy the safety guarantees that this module provides.
 -}
 data RequestType = Class | Vendor
 

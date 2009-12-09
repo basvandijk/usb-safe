@@ -58,7 +58,11 @@ module System.USB.Safe
     ( -- * Device regions
       DeviceRegionT
     , runDeviceRegionT
-    , forkDeviceRegionT
+
+    , TopDeviceRegion
+    , runTopDeviceRegion
+
+    , forkTopDeviceRegion
 
     , mapDeviceRegionT
     , liftCatch
@@ -361,16 +365,28 @@ Note that it is possible to run a region inside another region.
 runDeviceRegionT ∷ MonadCatchIO m ⇒ (∀ s. DeviceRegionT s m α) → m α
 runDeviceRegionT m = runWith [] m
 
-{-| Execute the given region in a new thread.
+{-| A region which does not have parent regions and can be directly executed in
+'IO' by 'runTopDeviceRegion' or concurrently executed in another region by
+'forkTopDeviceRegion'.
+-}
+type TopDeviceRegion s = DeviceRegionT s IO
+
+-- | Convenience funtion for running a /top-level/ region in 'IO'.
+--
+-- Note that: @runTopDeviceRegion = 'runDeviceRegionT'@
+runTopDeviceRegion ∷ (∀ s. TopDeviceRegion s α) → IO α
+runTopDeviceRegion = runDeviceRegionT
+
+{-| Return a region which executes the given /top-level/ region in a new thread.
 
 Note that the forked region has the same type variable @s@ as the resulting
 region. This means that all 'DeviceHandle's which can be referenced in the
 resulting region can also be referenced in the forked region.
 -}
-forkDeviceRegionT ∷ MonadIO m
-                  ⇒ DeviceRegionT s IO ()
-                  → DeviceRegionT s m ThreadId
-forkDeviceRegionT m = DeviceRegionT $ do
+forkTopDeviceRegion ∷ MonadIO m
+                    ⇒ TopDeviceRegion s ()
+                    → DeviceRegionT s m ThreadId
+forkTopDeviceRegion m = DeviceRegionT $ do
   openedDevicesIORef ← ask
   liftIO $ do openedDevices ← readIORef openedDevicesIORef
               block $ do mapM_ incrementRefCnt openedDevices

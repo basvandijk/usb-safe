@@ -1,8 +1,4 @@
 
--- For each language extension I explain why I need it at the first place I need
--- it. So just do a textual search for them and you will see why I need so many
--- of them:
-
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE RankNTypes #-}
@@ -282,9 +278,6 @@ Note that regions can be nested. @pr@ (for parent region) is a monad which is
 usually the region which is running this region. However when you are running a
 'TopDeviceRegion' the parent region will be 'IO'.
 -}
--- Note that for the kind signature on 'pr' I need: 'KindSignatures'
--- Note that because I use unicode symbols I need: 'UnicodeSyntax'
-
 newtype DeviceRegionT s (pr ∷ * → *) α = DeviceRegionT
     (ReaderT (IORef [OpenedDevice]) pr α)
 
@@ -294,10 +287,6 @@ newtype DeviceRegionT s (pr ∷ * → *) α = DeviceRegionT
              , MonadCatchIO
              , MonadCont
              )
-
-    -- Note to automatically derive these instances I need:
-    -- 'GeneralizedNewtypeDeriving' which lets you derive instances of the type
-    -- you've wrapped.
 
 {-| Regions need to know the list of devices that have been opened in and
 duplicated to the region. Regions also need to be able to update that list when
@@ -376,7 +365,6 @@ Note that it is possible to run a region inside another region.
 
 /TODO: Say something more about this nesting of regions.../
 -}
--- Note for the inner ∀ quantifier I need: 'RankNTypes'
 runDeviceRegionT ∷ MonadCatchIO pr ⇒ (∀ s. DeviceRegionT s pr α) → pr α
 runDeviceRegionT m = runWith [] m
 
@@ -608,21 +596,9 @@ DeviceRegionT ps ppr  `ParentOf`  DeviceRegionT cs
                                         (DeviceRegionT ps ppr)))
 @
 -}
--- Note that to declare this class with multiple parameters I need:
--- 'MultiParamTypeClasses'
-
 class (Monad pr, Monad cr) ⇒ pr `ParentOf` cr
 
--- Note that because 'r' apears twice in the instance's head I need:
--- 'FlexibleInstances'
-
 instance Monad r ⇒ ParentOf r r
-
--- Note that because the type constructor 'DeviceRegionT' apears in the
--- instance's context I need: 'FlexibleContexts' or 'UndecidableInstances'
-
--- And note that because of the type variable 's' and 'pcr' not occuring in the
--- instance's head I need: 'UndecidableInstances'
 
 instance ( Monad cr
          , cr `TypeCast2` (DeviceRegionT s pcr)
@@ -634,9 +610,6 @@ instance ( Monad cr
 --------------------------------------------------------------------------------
 -- Type casting
 --------------------------------------------------------------------------------
-
--- Note that to declare these classes with functional dependencies I need:
--- 'FunctionalDependencies'
 
 class TypeCast2     (a ∷ * → *) (b ∷ * → *) |   a → b,   b → a
 class TypeCast2'  t (a ∷ * → *) (b ∷ * → *) | t a → b, t b → a
@@ -1131,8 +1104,6 @@ filterEndpoints = map FilteredEndpoint ∘ filter eqTransDirAndTransType
       eqTransDirAndTransType (Endpoint _ endpointDesc) =
          (undefined ∷ transDir)  `eqTransDir`  transDirUSB
        ∧ (undefined ∷ transType) `eqTransType` transTypeUSB
-      -- Note that to use the 'transDir' and 'transType' types inside this
-      -- function you need: 'ScopedTypeVariables'
         where
          transDirUSB  = USB.transferDirection $ USB.endpointAddress endpointDesc
          transTypeUSB = USB.endpointAttribs endpointDesc
@@ -1176,9 +1147,6 @@ data Out; instance TransferDirection Out where eqTransDir _ = (≡ USB.Out)
 
 -- | In transfer direction (device -> host) used for reading.
 data In; instance TransferDirection In where eqTransDir _ = (≡ USB.In)
-
--- Note that because these data types don't have definitions I need:
--- 'EmptyDataDecls'
 
 
 --------------------------------------------------------------------------------

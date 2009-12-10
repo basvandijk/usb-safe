@@ -14,6 +14,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE OverlappingInstances #-}
 
 --------------------------------------------------------------------------------
 -- |

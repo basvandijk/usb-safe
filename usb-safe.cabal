@@ -11,7 +11,7 @@ stability:     experimental
 category:      System
 synopsis:      Wrapper around the usb package adding extra type-safety
 description:
-  The usb library provides a standard Haskell abstracting layer over
+  The usb library provides a standard Haskell abstraction layer over
   bindings-libusb providing: abstract types instead of Ptrs, automatic
   marshalling and unmarshalling, automatic garbage collection,
   exceptions instead of integer return codes, etc..

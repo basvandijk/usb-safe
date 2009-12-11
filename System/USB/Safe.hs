@@ -13,7 +13,7 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE GADTs #-}
 
---------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- |
 -- Module      :  System.USB.Safe
 -- Copyright   :  (c) 2009 Bas van Dijk
@@ -81,10 +81,9 @@ module System.USB.Safe
 
       -- ** Setting configurations
     , ConfigHandle
-    , SettingAlreadySet
-    , withConfig
-    , NoActiveConfig
-    , withActiveConfig
+    , setConfig,       SettingAlreadySet
+    , useActiveConfig, NoActiveConfig
+    , setConfigWhich,  SettingNotFound
 
       -- * Interfaces
     , Interface
@@ -102,8 +101,9 @@ module System.USB.Safe
 
       -- ** Setting alternates
     , AlternateHandle
-    , withAlternate
-    , withActiveAlternate
+    , setAlternate
+    , useActiveAlternate
+    , setAlternateWhich
 
       -- * Endpoints
     , Endpoint
@@ -193,7 +193,7 @@ import Control.Monad.State.Class  ( MonadState, get, put )
 import Control.Monad.Writer.Class ( MonadWriter, tell, listen, pass )
 
 -- from MonadCatchIO-transformers:
-import Control.Monad.CatchIO      ( MonadCatchIO, block, bracket, bracket_ )
+import Control.Monad.CatchIO      ( MonadCatchIO, block, bracket, bracket_, throw )
 
 -- from unicode-symbols:
 import Prelude.Unicode            ( (∘), (≡), (∧) )
@@ -335,11 +335,11 @@ modifications happen atomically using: 'atomicModifyIORef'.
 type RefCntIORef = IORef Int
 
 -- | @MVar@ which keeps track of wheter a configuration has been set.
--- See: 'withConfig'.
+-- See: 'setConfig'.
 type ConfigAlreadySetMVar = MVar Bool
 
 -- | @MVar@ which keeps track of wheter an alternate has been set.
--- See: 'withAlternate'.
+-- See: 'setAlternate'.
 type AlternateAlreadySetMVar = MVar Bool
 
 {-| Execute a region inside its parent region @pr@.
@@ -633,9 +633,10 @@ Note the @pr \`ParentOf\` cr@ which ensures that this function
 can be executed in any child region of the region in which the given device
 handle was created.
 
-You can only reset a device when all computations passed to 'withConfig' or
-'withActiveConfig' have been terminated. If you call @resetDevice@ and such a
-computation is still running a 'SettingAlreadySet' exception is thrown.
+You can only reset a device when all computations passed to 'setConfig',
+'useActiveConfig' and 'setConfigWhich' have been terminated. If you call
+@resetDevice@ and such a computation is still running a 'SettingAlreadySet'
+exception is thrown.
 
 If the reset fails, the descriptors change, or the previous state cannot be
 restored, the device will appear to be disconnected and reconnected. This means
@@ -651,8 +652,8 @@ Exceptions:
  * 'NotFoundException' if re-enumeration is required, or if the
    device has been disconnected.
 
- * 'SettingAlreadySet' if a configuration has been set using 'withConfig' or
-   'withActiveConfig'.
+ * 'SettingAlreadySet' if a configuration has been set using 'setConfig',
+   'useActiveConfig' and 'setConfigWhich'.
 
  * Another 'USBException'.
 -}
@@ -717,44 +718,25 @@ dupConfig (Config devHndlC cfg) = do
 {-| A handle to an active 'Config' parameterized by the region @r@ in which it
 was created.
 
-You get a handle to a configuration using 'withConfig' or
-'withActiveConfig'. The type variable @sCfg@ is used to ensure that you can't
+You get a handle to a configuration using 'setConfig', 'useActiveConfig' or
+'setConfigWhich'. The type variable @sCfg@ is used to ensure that you can't
 return this handle from these functions.
 -}
 newtype ConfigHandle sCfg (r ∷ * → *) = ConfigHandle (Config r)
-
-{-| This exception can be thrown in:
-
-* 'resetDevice'
-
-* 'withConfig'
-
-* 'withActiveConfig'
-
-* 'withAlternate'
-
-* 'withActiveAlternate'
-
-to indicate that the device was already configured with a setting.
--}
-data SettingAlreadySet = SettingAlreadySet deriving (Show, Typeable)
--- Note to derive 'Typeable' I need: 'DeriveDataTypeable'
-
-instance Exception SettingAlreadySet
 
 {-| Set the active configuration for a device and then apply the given function
 to the resulting configuration handle.
 
 USB devices support multiple configurations of which only one can be active at
-any given time. When a configuration is set using 'withConfig' or
-'withActiveConfig' no threads can set a new configuration until the computation
+any given time. When a configuration is set using 'setConfig', 'useActiveConfig'
+or 'setConfigWhich' no threads can set a new configuration until the computation
 passed to these functions terminates. If you do try to set one a
 'SettingAlreadySet' exception will be thrown.
 
 The operating system may or may not have already set an active configuration on
 the device. It is up to your application to ensure the correct configuration is
 selected before you attempt to claim interfaces and perform other operations. If
-you want to use the current active configuration use 'withActiveConfig'.
+you want to use the current active configuration use 'useActiveConfig'.
 
 If you call this function on a device already configured with the selected
 configuration, then this function will act as a lightweight device reset: it
@@ -774,18 +756,18 @@ Exceptions:
  * 'NoDeviceException' if the device has been disconnected
 
  * 'SettingAlreadySet' if a configuration has already been set using
-   'withConfig' or 'withActiveConfig'.
+   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
 
  * Another 'USBException'.
 -}
-withConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
-           ⇒ Config pr
-           → (∀ sCfg. ConfigHandle sCfg pr → cr α)
-           → cr α
-withConfig config@(Config
-                   (DeviceHandle
-                    (OpenedDevice devHndlI _ configAlreadySetMVar _))
-                   configDesc) f =
+setConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+          ⇒ Config pr
+          → (∀ sCfg. ConfigHandle sCfg pr → cr α)
+          → cr α
+setConfig config@(Config
+                  (DeviceHandle
+                   (OpenedDevice devHndlI _ configAlreadySetMVar _))
+                  configDesc) f =
     withUnsettedMVar configAlreadySetMVar $ do
       liftIO $ USB.setConfig devHndlI $ USB.configValue configDesc
       f $ ConfigHandle config
@@ -800,12 +782,19 @@ withUnsettedMVar settingAlreadySetMVar =
              (liftIO $ do _ ← takeMVar settingAlreadySetMVar
                           putMVar settingAlreadySetMVar False)
 
-{-| This exception can be thrown in 'withActiveConfig' to indicate that the
-device is currently not configured.
--}
-data NoActiveConfig = NoActiveConfig deriving (Show, Typeable)
+{-| This exception can be thrown in:
 
-instance Exception NoActiveConfig
+* 'resetDevice'
+
+* 'setConfig' or 'useActiveConfig' or 'setConfigWhich'
+
+* 'setAlternate' or 'useActiveAlternate' or 'setAlternateWhich'
+
+to indicate that the device was already configured with a setting.
+-}
+data SettingAlreadySet = SettingAlreadySet deriving (Show, Typeable)
+
+instance Exception SettingAlreadySet
 
 {-| Apply the given function to the configuration handle of the current active
 configuration of the given device handle.
@@ -815,26 +804,23 @@ information may be cached by the operating system. If it isn't cached this
 function will block while a control transfer is submitted to retrieve the
 information.
 
-/TODO: I'm not yet sure if this is the best way of handling already configured devices./
-/So this may change in the future!/
-
 Exceptions:
 
  * 'NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if a configuration has already been set using
-   'withConfig' or 'withActiveConfig'.
+   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
 
  * 'NoActiveConfig' if the device is not configured.
 
  * Aanother 'USBException'.
 -}
-withActiveConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
-                 ⇒ DeviceHandle pr
-                 → (∀ sCfg. ConfigHandle sCfg pr → cr α)
-                 → cr α
-withActiveConfig devHndl@(DeviceHandle
-                          (OpenedDevice devHndlI _ configAlreadySetMVar _ )) f =
+useActiveConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                ⇒ DeviceHandle pr
+                → (∀ sCfg. ConfigHandle sCfg pr → cr α)
+                → cr α
+useActiveConfig devHndl@(DeviceHandle
+                         (OpenedDevice devHndlI _ configAlreadySetMVar _ )) f =
     withUnsettedMVar configAlreadySetMVar $ do
       activeConfigDesc ← liftIO $ getActiveConfigDesc devHndlI
       f $ ConfigHandle $ Config devHndl activeConfigDesc
@@ -845,6 +831,50 @@ getActiveConfigDesc devHndlI =
        when (activeConfigValue ≡ 0) $ throwIO NoActiveConfig
        let isActive = (activeConfigValue ≡) ∘ USB.configValue
        return $ fromJust $ find isActive $ getConfigDescs devHndlI
+
+{-| This exception can be thrown in 'useActiveConfig' to indicate that the
+device is currently not configured.
+-}
+data NoActiveConfig = NoActiveConfig deriving (Show, Typeable)
+
+instance Exception NoActiveConfig
+
+{-| Convenience function which finds the first configuration of the given device
+handle which satisfies the given predicate on its descriptor, then sets that
+configuration and applies the given function to the resulting configuration
+handle.
+
+This function calls 'setConfig' so do see its documentation.
+
+Exceptions:
+
+ * 'SettingNotFound' if no configuration is found that satisfies the given
+   predicate.
+
+ * 'BusyException' if interfaces are currently claimed.
+
+ * 'NoDeviceException' if the device has been disconnected
+
+ * 'SettingAlreadySet' if a configuration has already been set using
+   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
+
+ * Another 'USBException'.
+-}
+setConfigWhich ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+               ⇒ DeviceHandle pr
+               → (USB.ConfigDesc -> Bool)
+               → (∀ sCfg. ConfigHandle sCfg pr → cr α)
+               → cr α
+setConfigWhich devHndl p f =
+    case find (p ∘ getConfigDesc) $ getConfigs devHndl of
+      Nothing     → throw SettingNotFound
+      Just config → setConfig config f
+
+-- | This exception will be thrown in 'setConfigWhich' or 'setAlternateWhich' to
+-- indicate that no setting was found which satisfies the given predicate.
+data SettingNotFound = SettingNotFound deriving (Show, Typeable)
+
+instance Exception SettingNotFound
 
 
 --------------------------------------------------------------------------------
@@ -865,7 +895,8 @@ data Intrf = Intrf USB.DeviceHandle
 
 Note that the interface is parameterized by the same type variables as the
 configuration handle. This ensures you can never use an interface outside the
-scope of the function passed to 'withConfig' or 'withActiveConfig'.
+scope of the function passed to 'setConfig', 'useActiveConfig' or
+'setConfigWhich'.
 -}
 getInterfaces ∷ ConfigHandle sCfg r → [Interface sCfg r]
 getInterfaces (ConfigHandle
@@ -965,8 +996,8 @@ getInterfaceDesc (Alternate (Alt _ ifDesc _)) = ifDesc
 {-| A handle to a setted alternate setting parameterized by the region @r@ in
 which it was created.
 
-You get a handle to an alternate using 'withAlternate' or
-'withActiveAlternate'. The type variable @sAlt@ is used to ensure that you can't
+You get a handle to an alternate using 'setAlternate', 'useActiveAlternate' or
+'setAlternateWhich'. The type variable @sAlt@ is used to ensure that you can't
 return this handle from these functions.
 -}
 newtype AlternateHandle sAlt (r ∷ * → *) = AlternateHandle Alt
@@ -976,12 +1007,12 @@ function to the resulting alternate handle.
 
 Simillary to configurations, interfaces support multiple alternate settings of
 which only one can be active at any given time. When an alternate is set using
-'withAlternate' or 'withActiveAlternate' no threads can set a new alternate
-until the computation passed to these functions terminates. If you do try to set
-one a 'SettingAlreadySet' exception will be thrown.
+'setAlternate', 'useActiveAlternate' or 'setAlternateWhich' no threads can set a
+new alternate until the computation passed to these functions terminates. If you
+do try to set one a 'SettingAlreadySet' exception will be thrown.
 
 The operating system may already have set an alternate for the interface. If you
-want to use this current active alternate use 'withActiveAlternate'.
+want to use this current active alternate use 'useActiveAlternate'.
 
 This is a blocking function.
 
@@ -990,18 +1021,19 @@ Exceptions:
  * 'NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if an alternate has already been set using
-   'withAlternate' or 'withActiveAlternate'.
+   'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
  * Another 'USBException'.
 -}
-withAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
-              ⇒ Alternate sIntrf pr
-              → (∀ sAlt. AlternateHandle sAlt pr → cr α) → cr α
-withAlternate (Alternate alt@(Alt devHndlI
-                                  ifDesc
-                                  alternateAlreadySetMVar
-                             )
-              ) f =
+setAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+             ⇒ Alternate sIntrf pr
+             → (∀ sAlt. AlternateHandle sAlt pr → cr α)
+             → cr α
+setAlternate (Alternate alt@(Alt devHndlI
+                                 ifDesc
+                                 alternateAlreadySetMVar
+                            )
+             ) f =
   withUnsettedMVar alternateAlreadySetMVar $ do
     liftIO $ USB.setInterfaceAltSetting
                devHndlI
@@ -1015,24 +1047,22 @@ alternate of the give interface handle.
 To determine the current active alternate this function will block while a
 control transfer is submitted to retrieve the information.
 
-/TODO: I'm not yet sure if this is the best way of handling already configured devices./
-/So this may change in the future!/
-
 Exceptions:
 
  * 'NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if an alternate has already been set using
-   'withAlternate' or 'withActiveAlternate'.
+   'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
  * Aanother 'USBException'.
 
 -}
-withActiveAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
-                    ⇒ InterfaceHandle sIntrf pr
-                    → (∀ sAlt. AlternateHandle sAlt pr → cr α) → cr α
-withActiveAlternate (InterfaceHandle
-                     (Intrf devHndlI ifNum alts alternateAlreadySetMVar)) f =
+useActiveAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                   ⇒ InterfaceHandle sIntrf pr
+                   → (∀ sAlt. AlternateHandle sAlt pr → cr α)
+                   → cr α
+useActiveAlternate (InterfaceHandle
+                    (Intrf devHndlI ifNum alts alternateAlreadySetMVar)) f =
     withUnsettedMVar alternateAlreadySetMVar $ do
       activeAltValue ← liftIO $ USB.getInterfaceAltSetting devHndlI ifNum 5000
       let isActive = (activeAltValue ≡) ∘ USB.interfaceAltSetting
@@ -1040,6 +1070,33 @@ withActiveAlternate (InterfaceHandle
                                 (fromJust $ find isActive alts)
                                 alternateAlreadySetMVar
 
+{-| Convenience function which finds the first alternate of the given interface
+handle which satisfies the given predicate on its descriptor, then sets that
+alternate and applies the given function to the resulting alternate handle.
+
+This function calls 'setAlternate' so do see its documentation.
+
+Exceptions:
+
+ * 'SettingNotFound' if no alternate is found that satisfies the given
+   predicate.
+
+ * 'NoDeviceException' if the device has been disconnected.
+
+ * 'SettingAlreadySet' if an alternate has already been set using
+   'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
+
+ * Another 'USBException'.
+-}
+setAlternateWhich ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+                  ⇒ InterfaceHandle sIntrf pr
+                  → (USB.InterfaceDesc → Bool)
+                  → (∀ sAlt. AlternateHandle sAlt pr → cr α)
+                  → cr α
+setAlternateWhich ifHndl p f =
+    case find (p ∘ getInterfaceDesc) $ getAlternates ifHndl of
+      Nothing  → throw SettingNotFound
+      Just alt → setAlternate alt f
 
 --------------------------------------------------------------------------------
 -- * Endpoints
@@ -1054,7 +1111,8 @@ data Endpoint sAlt (r ∷ * → *) = Endpoint USB.DeviceHandle
 
 Note that the endpoint is parameterized by the same type variables as the
 alternate handle. This ensures you can never use an endpoint outside the scope
-of the function passed to 'withAlternate' or 'withActiveAlternate'.
+of the function passed to 'setAlternate', 'useActiveAlternate' or
+'setAlternateWhich'.
 -}
 getEndpoints ∷ AlternateHandle sAlt r → [Endpoint sAlt r]
 getEndpoints (AlternateHandle (Alt devHndlI ifDesc _)) =

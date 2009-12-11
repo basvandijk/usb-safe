@@ -11,6 +11,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE GADTs #-}
 
 --------------------------------------------------------------------------------
 -- |
@@ -116,21 +117,22 @@ module System.USB.Safe
     , clearHalt
 
       -- *** Transfer directions
-    , In
-    , Out
+    , TransferDirection(..)
+    , OUT
+    , IN
 
       -- *** Transfer types
-    , Control
-    , Isochronous
-    , Bulk
-    , Interrupt
+    , TransferType(..)
+    , CONTROL
+    , ISOCHRONOUS
+    , BULK
+    , INTERRUPT
 
       -- * Endpoint I/O
     , ReadAction
-    , ReadEndpoint(..)
-
     , WriteAction
-    , WriteEndpoint(..)
+    , readEndpoint
+    , writeEndpoint
 
       -- ** Control transfers
     , RequestType(..)
@@ -249,9 +251,7 @@ import qualified System.USB.Descriptors    as USB ( deviceConfigs
                                                   , getStrDesc
                                                   , getStrDescFirstLang
                                                   )
-import qualified System.USB.IO.Synchronous as USB ( ReadAction, WriteAction
-
-                                                  , Timeout, Size
+import qualified System.USB.IO.Synchronous as USB ( Timeout, Size
 
                                                   , RequestType(Class, Vendor)
                                                   , Recipient
@@ -1066,12 +1066,12 @@ getEndpoints (AlternateHandle (Alt devHndlI ifDesc _)) =
 --------------------------------------------------------------------------------
 
 {-| I/O operations on endpoints are type-safe. You can only read from an
-endpoint with an 'In' transfer direction and you can only write to an endpoint
-with an 'Out' transfer direction.
+endpoint with an 'IN' transfer direction and you can only write to an endpoint
+with an 'OUT' transfer direction.
 
 Reading and writing also have different implementations for the different
-endpoint transfer types like: 'Bulk' and 'Interrupt'. I/O with endpoints of
-other transfer types like 'Control' and 'Isochronous' is not possible.
+endpoint transfer types like: 'BULK' and 'INTERRUPT'. I/O with endpoints of
+other transfer types like 'CONTROL' and 'ISOCHRONOUS' is not possible.
 
 This type lifts the transfer direction and transfer type information to the
 type-level so that I/O operations like 'readEndpoint' and 'writeEndpoint' can
@@ -1092,21 +1092,34 @@ in their type.
 -}
 filterEndpoints ∷ ∀ transDir
                     transType
-                    sAlt r. ( TransferDirection transDir
-                            , TransferType      transType
-                            )
-                ⇒ [Endpoint sAlt r] → [FilteredEndpoint transDir
+                    sAlt r
+                . TransferDirection transDir
+                → TransferType      transType
+                → [Endpoint sAlt r] → [FilteredEndpoint transDir
                                                         transType
                                                         sAlt r
                                       ]
-filterEndpoints = map FilteredEndpoint ∘ filter eqTransDirAndTransType
+filterEndpoints transDir transType = map FilteredEndpoint
+                                   ∘ filter eqTransDirAndTransType
     where
       eqTransDirAndTransType (Endpoint _ endpointDesc) =
-         (undefined ∷ transDir)  `eqTransDir`  transDirUSB
-       ∧ (undefined ∷ transType) `eqTransType` transTypeUSB
+         transDir  `eqTransDir`  transDirUSB
+       ∧ transType `eqTransType` transTypeUSB
         where
          transDirUSB  = USB.transferDirection $ USB.endpointAddress endpointDesc
          transTypeUSB = USB.endpointAttribs endpointDesc
+
+eqTransDir ∷ TransferDirection transDir → USB.TransferDirection → Bool
+Out `eqTransDir` USB.Out = True
+In  `eqTransDir` USB.In  = True
+_   `eqTransDir` _       = False
+
+eqTransType ∷ TransferType transType → USB.TransferType → Bool
+Control     `eqTransType` USB.Control           = True
+Isochronous `eqTransType` (USB.Isochronous _ _) = True
+Bulk        `eqTransType` USB.Bulk              = True
+Interrupt   `eqTransType` USB.Interrupt         = True
+_           `eqTransType` _                     = False
 
 -- | Retrieve the endpoint descriptor from the given endpoint handle.
 getEndpointDesc ∷ FilteredEndpoint transDir transType sAlt r
@@ -1139,47 +1152,27 @@ clearHalt (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
 -- *** Transfer directions
 --------------------------------------------------------------------------------
 
-class TransferDirection transDir where
-    eqTransDir ∷ transDir → USB.TransferDirection → Bool
+data TransferDirection transDir where
+    Out ∷ TransferDirection OUT
+    In  ∷ TransferDirection IN
 
--- | Out transfer direction (host -> device) used for writing.
-data Out; instance TransferDirection Out where eqTransDir _ = (≡ USB.Out)
-
--- | In transfer direction (device -> host) used for reading.
-data In; instance TransferDirection In where eqTransDir _ = (≡ USB.In)
-
+data OUT
+data IN
 
 --------------------------------------------------------------------------------
 -- *** Transfer types
 --------------------------------------------------------------------------------
 
-class TransferType transType where
-    eqTransType ∷ transType → USB.TransferType → Bool
+data TransferType transType where
+    Control     ∷ TransferType CONTROL
+    Isochronous ∷ TransferType ISOCHRONOUS
+    Bulk        ∷ TransferType BULK
+    Interrupt   ∷ TransferType INTERRUPT
 
--- | @Control@ endpoints don't support read and write operations.
-data Control
-
-instance TransferType Control where
-    eqTransType _ = (≡ USB.Control)
-
--- | @Isochronous@ endpoints don't support read and write operations.
-data Isochronous
-
-instance TransferType Isochronous where
-    eqTransType _ (USB.Isochronous _ _) = True
-    eqTransType _ _ = False
-
--- | @Bulk@ endpoints support read and write operations.
-data Bulk
-
-instance TransferType Bulk where
-    eqTransType _ = (≡ USB.Bulk)
-
--- | @Interrupt@ endpoints support read and write operations.
-data Interrupt
-
-instance TransferType Interrupt where
-    eqTransType _ = (≡ USB.Interrupt)
+data CONTROL
+data ISOCHRONOUS
+data BULK
+data INTERRUPT
 
 
 --------------------------------------------------------------------------------
@@ -1195,29 +1188,31 @@ indication if the transfer timed out.
 -}
 type ReadAction r = USB.Timeout → USB.Size → r (ByteString, Bool)
 
-{-| Class of transfer types that support reading.
-
-(Only 'Bulk' and 'Interrupt' transfer types are supported.)
--}
-class TransferType transType => ReadEndpoint transType where
-    -- | Read bytes from an 'In' endpoint.
+-- | Class of transfer types that support reading.
+class ReadEndpoint transType where
+    -- | Read bytes from an 'IN' endpoint with either a 'BULK' or 'INTERRUPT'
+    -- transfer type.
     readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                 ⇒ FilteredEndpoint In transType sAlt pr → ReadAction cr
+                 ⇒ FilteredEndpoint IN transType sAlt pr → ReadAction cr
 
-instance ReadEndpoint Bulk where
-    readEndpoint = readEndpointWith USB.readBulk
+instance ReadEndpoint BULK where
+    readEndpoint = transferWith USB.readBulk
 
-instance ReadEndpoint Interrupt where
-    readEndpoint = readEndpointWith USB.readInterrupt
+instance ReadEndpoint INTERRUPT where
+    readEndpoint = transferWith USB.readInterrupt
 
-readEndpointWith ∷ (pr `ParentOf` cr, MonadIO cr)
-                 ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.ReadAction)
-                 → FilteredEndpoint In transType sAlt pr → ReadAction cr
-readEndpointWith f (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
-    \timeout size → liftIO $ f devHndlI
-                               (USB.endpointAddress endpointDesc)
-                               timeout
-                               size
+transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
+             ⇒ ( USB.DeviceHandle → USB.EndpointAddress
+               → USB.Timeout -> α -> IO (β, Bool)
+               )
+             → ( FilteredEndpoint transDir transType sAlt pr
+               → USB.Timeout -> α -> cr (β, Bool)
+               )
+transferWith f (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
+    \timeout sbs → liftIO $ f devHndlI
+                              (USB.endpointAddress endpointDesc)
+                              timeout
+                              sbs
 
 --------------------------------------------------------------------------------
 
@@ -1230,29 +1225,19 @@ timed out.
 -}
 type WriteAction r = USB.Timeout → ByteString → r (USB.Size, Bool)
 
-{-| Class of transfer types that support writing
-
-(Only 'Bulk' and 'Interrupt' transfer types are supported.)
--}
-class TransferType transType => WriteEndpoint transType where
-    -- | Write bytes to an 'Out' endpoint.
+-- | Class of transfer types that support writing
+class WriteEndpoint transType where
+    -- | Write bytes to an 'OUT' endpoint with either a 'BULK' or 'INTERRUPT'
+    -- transfer type.
     writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                     ⇒ FilteredEndpoint Out transType sAlt pr → WriteAction cr
+                  ⇒ FilteredEndpoint OUT transType sAlt pr → WriteAction cr
 
-instance WriteEndpoint Bulk where
-    writeEndpoint = writeEndpointWith USB.writeBulk
+instance WriteEndpoint BULK where
+    writeEndpoint = transferWith USB.writeBulk
 
-instance WriteEndpoint Interrupt where
-    writeEndpoint = writeEndpointWith USB.writeInterrupt
+instance WriteEndpoint INTERRUPT where
+    writeEndpoint = transferWith USB.writeInterrupt
 
-writeEndpointWith ∷ (pr `ParentOf` cr, MonadIO cr)
-                  ⇒ (USB.DeviceHandle → USB.EndpointAddress → USB.WriteAction)
-                  → FilteredEndpoint Out transType sAlt pr → WriteAction cr
-writeEndpointWith f (FilteredEndpoint (Endpoint devHndlI endpointDesc)) =
-    \timeout bs → liftIO $ f devHndlI
-                             (USB.endpointAddress endpointDesc)
-                             timeout
-                             bs
 
 --------------------------------------------------------------------------------
 -- ** Control transfers

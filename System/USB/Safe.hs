@@ -161,7 +161,10 @@ module System.USB.Safe
 import Control.Concurrent         ( forkIO, ThreadId )
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar)
 
-import Control.Monad              ( when, liftM4 )
+import Control.Applicative        ( Applicative, Alternative )
+
+import Control.Monad              ( when, liftM4, MonadPlus )
+import Control.Monad.Fix          ( MonadFix )
 
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
@@ -281,7 +284,12 @@ usually the region which is running this region. However when you are running a
 newtype DeviceRegionT s (pr ∷ * → *) α = DeviceRegionT
     (ReaderT (IORef [OpenedDevice]) pr α)
 
-    deriving ( Monad
+    deriving ( Functor
+             , Applicative
+             , Alternative
+             , Monad
+             , MonadPlus
+             , MonadFix
              , MonadTrans
              , MonadIO
              , MonadCatchIO

@@ -1,5 +1,5 @@
 name:          usb-safe
-version:       0.4.0.1
+version:       0.4.1
 cabal-version: >=1.6
 build-type:    Simple
 license:       BSD3
@@ -103,7 +103,7 @@ source-repository head
   Location: http://code.haskell.org/~basvandijk/code/usb-safe
 
 Library
-  GHC-Options: -O2 -Wall
+  GHC-Options: -O2 -Wall -fno-warn-orphans
   build-depends: base                      >= 4 && < 4.2
                , base-unicode-symbols      == 0.1.*
                , usb                       == 0.3.*

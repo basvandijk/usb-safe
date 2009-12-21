@@ -99,6 +99,8 @@ module System.USB.Safe
     , RegionalIfHandle
     , claim
 
+    , withInterfaceWhich
+
       -- * Alternates
     , Alternate
     , getAlternates
@@ -629,7 +631,7 @@ instance Resource (Interface sCfg) where
 
     data Handle (Interface sCfg) = InterfaceHandle
         { interface ∷ Interface sCfg
-        , alternateAlreadySetMVar ∷ MVar Bool
+        , _alternateAlreadySetMVar ∷ MVar Bool
           -- ^ A mutable shared variable which keeps track of wheter an
           -- alternate has been set. See: 'setAlternate'.
         }
@@ -689,22 +691,24 @@ claim ∷ MonadCatchIO pr
                 (RegionT (Interface sCfg) s pr))
 claim = open
 
-{-| Convenience function which finds the first interfaces of the given
-configuration handle which satisfies the given predicate on its descriptor, then
-claims that interfaces and applies the given function on the resulting regional
-handle.
+{-| Convenience function which finds the first interface of the given
+configuration handle which satisfies the given predicate on its descriptors,
+then claims that interfaces and applies the given continuation function on the
+resulting regional handle.
 -}
 withInterfaceWhich ∷ MonadCatchIO pr
-                   ⇒ ConfigHandle sCfg
-                   → (USB.Interface → Bool)
-                   →  (∀ s. RegionalIfHandle sCfg (RegionT (Interface sCfg) s pr)
-                          → IfRegionT sCfg s pr α
-                      )
+                   ⇒ ConfigHandle sCfg -- ^ Handle to a configuration of which
+                                       --   you want to claim an interface.
+                   → (USB.Interface → Bool) -- ^ Predicate on the interface descriptors.
+                   → (∀ s. RegionalIfHandle sCfg (RegionT (Interface sCfg) s pr)
+                         → IfRegionT sCfg s pr α
+                     ) -- ^ Continuation function.
                    → pr α
 withInterfaceWhich confHndl p f =
     case find (p ∘ getDesc) $ getInterfaces confHndl of
       Nothing     → throw NotFound
       Just intrf  → with intrf f
+
 
 --------------------------------------------------------------------------------
 -- * Alternates
@@ -999,10 +1003,25 @@ type ReadAction r = USB.Timeout → USB.Size → r (ByteString, Bool)
 
 -- | Class of transfer types that support reading.
 class ReadEndpoint transType where
-    -- | Read bytes from an 'IN' endpoint with either a 'BULK' or 'INTERRUPT'
-    -- transfer type.
+    {-| Read bytes from an 'IN' endpoint with either a 'BULK' or 'INTERRUPT'
+        transfer type.
+
+        Exceptions:
+
+        * 'PipeException' if the endpoint halted.
+
+        * 'OverflowException' if the device offered more data,
+          see /Packets and overflows/ in the libusb documentation:
+          <http://libusb.sourceforge.net/api-1.0/packetoverflow.html>.
+
+        * 'NoDeviceException' if the device has been disconnected.
+
+        * Another 'USBException'.
+    -}
     readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                 ⇒ Endpoint IN transType sAlt pr → ReadAction cr
+                 ⇒ Endpoint IN transType sAlt pr -- ^ The endpoint you wish to
+                                                 --   read from.
+                 → ReadAction cr
 
 instance ReadEndpoint BULK where
     readEndpoint = transferWith USB.readBulk
@@ -1036,10 +1055,21 @@ type WriteAction r = USB.Timeout → ByteString → r (USB.Size, Bool)
 
 -- | Class of transfer types that support writing
 class WriteEndpoint transType where
-    -- | Write bytes to an 'OUT' endpoint with either a 'BULK' or 'INTERRUPT'
-    -- transfer type.
+    {-| Write bytes to an 'OUT' endpoint with either a 'BULK' or 'INTERRUPT'
+        transfer type.
+
+        Exceptions:
+
+        * 'PipeException' if the endpoint halted.
+
+        * 'NoDeviceException' if the device has been disconnected.
+
+        * Another 'USBException'.
+    -}
     writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                  ⇒ Endpoint OUT transType sAlt pr → WriteAction cr
+                  ⇒ Endpoint OUT transType sAlt pr -- ^ The endpoint you wish to
+                                                   --   write to.
+                  → WriteAction cr
 
 instance WriteEndpoint BULK where
     writeEndpoint = transferWith USB.writeBulk

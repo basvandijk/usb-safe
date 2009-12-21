@@ -84,6 +84,20 @@ description:
 
   <http://okmij.org/ftp/Haskell/regions.html#light-weight>
 
+  .
+
+  This technique is implemented in the @regions@ package which is
+  re-exported from @usb-safe@.
+
+  .
+
+  See the @usb-safe-examples@ package for examples how to use this library:
+
+  .
+
+  @darcs get@ <http://code.haskell.org/~basvandijk/code/usb-safe-examples>
+
+
 source-repository head
   Type:     darcs
   Location: http://code.haskell.org/~basvandijk/code/usb-safe

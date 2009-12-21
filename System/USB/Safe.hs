@@ -54,8 +54,12 @@
 --
 -- See: <http://okmij.org/ftp/Haskell/regions.html#light-weight>
 --
--- I have implemented this technique in the module:
--- 'Control.Monad.Trans.Region' which is exported from this module.
+-- This technique is implemented in the @regions@ package of which the
+-- @Control.Monad.Trans.Region@ module is re-exported by this module.
+--
+-- See the @usb-safe-examples@ package for examples how to use this library:
+--
+-- @darcs get@ <http://code.haskell.org/~basvandijk/code/usb-safe-examples>
 --
 --------------------------------------------------------------------------------
 
@@ -171,9 +175,7 @@ import Data.ByteString            ( ByteString )
 import Control.Monad.Trans        ( MonadIO, liftIO )
 
 -- from MonadCatchIO-transformers:
-import Control.Monad.CatchIO      ( MonadCatchIO
-                                  , bracket_, throw
-                                  )
+import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
 -- from unicode-symbols:
 import Prelude.Unicode            ( (∘), (≡), (∧) )
 
@@ -305,6 +307,9 @@ type TopDeviceRegion s α = TopRegion USB.Device s α
 
 A regional handle to an opened USB device can be created by applying 'open' or
 'with' to the USB device you wish to open.
+
+Note that you can also /duplicate/ a regional device handle by applying 'dup' to
+it.
 -}
 type RegionalDeviceHandle r = RegionalHandle USB.Device r
 
@@ -560,11 +565,11 @@ Exceptions:
  * Another 'USBException'.
 -}
 setConfigWhich ∷ (pr `ParentOf` cr, MonadCatchIO cr)
-               ⇒ RegionalDeviceHandle pr  -- ^ Regional handle to the device for
-                                          --   which you want to set a
-                                          --   configuration.
-               → (USB.ConfigDesc -> Bool) -- ^ Predicate on the configuration
-                                          --   descriptor.
+               ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device for
+                                         --   which you want to set a
+                                         --   configuration.
+               → (USB.ConfigDesc → Bool) -- ^ Predicate on the configuration
+                                         --   descriptor.
                → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
                → cr α
 setConfigWhich regionalDevHndl p f =
@@ -1007,10 +1012,10 @@ instance ReadEndpoint INTERRUPT where
 
 transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
              ⇒ ( USB.DeviceHandle → USB.EndpointAddress
-               → USB.Timeout -> α -> IO (β, Bool)
+               → USB.Timeout → α → IO (β, Bool)
                )
              → ( Endpoint transDir transType sAlt pr
-               → USB.Timeout -> α -> cr (β, Bool)
+               → USB.Timeout → α → cr (β, Bool)
                )
 transferWith f (Endpoint internalDevHndl endpointDesc) =
     \timeout sbs → liftIO $ f internalDevHndl

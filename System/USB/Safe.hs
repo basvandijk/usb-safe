@@ -289,6 +289,8 @@ instance Resource USB.Device where
 
     closeResource = USB.closeDevice ∘ internalDevHndl
 
+-- | Internally used function for getting the actual USB device handle from a
+-- regional device handle.
 getInternalDevHndl ∷ RegionalDeviceHandle r → USB.DeviceHandle
 getInternalDevHndl = internalDevHndl ∘ internalHandle
 
@@ -412,6 +414,8 @@ getConfigs regionalDevHndl = map (Config regionalDevHndl)
                            ∘ getInternalDevHndl
                            $ regionalDevHndl
 
+-- | Internally used function for getting all the configuration descriptors of
+-- the given device.
 getConfigDescs ∷ USB.DeviceHandle → [USB.ConfigDesc]
 getConfigDescs = USB.deviceConfigs ∘ USB.deviceDesc ∘ USB.getDevice
 
@@ -420,7 +424,12 @@ instance GetDescriptor (Config r) USB.ConfigDesc where
 
 instance Dup Config USB.Device where
     dup (Config regionalDevHndlC configDesc) = do
+      -- Duplicating a configuration just means duplicating the associated
+      -- regional device handle:
       regionalDevHndlP ← dup regionalDevHndlC
+
+      -- And returning a new configuration with the same parameters of the given
+      -- one but with a type that is parameterized by the parent region:
       return $ Config regionalDevHndlP configDesc
 
 
@@ -483,8 +492,10 @@ setConfig (Config (internalHandle → devHndl@(DeviceHandle internalDevHndl
       liftIO $ USB.setConfig internalDevHndl $ USB.configValue configDesc
       f $ ConfigHandle devHndl configDesc
 
--- | If the given @MVar@ was set a 'SettingAlreadySet' exception will be
--- thrown. If not it will be set before the given computation will be performed.
+-- | Internally used function which throws a 'SettingAlreadySet' exception if
+-- the given @MVar@ was set. If the given @MVar@ wasn't set it will be set
+-- before the given computation is performed. When the computation terminates,
+-- wheter normally or by raising an exception, the @MVar@ will be unset again.
 withUnsettedMVar ∷ MonadCatchIO m ⇒ MVar Bool → m α → m α
 withUnsettedMVar settingAlreadySetMVar =
     bracket_ (liftIO $ do settingAlreadySet ← takeMVar settingAlreadySetMVar

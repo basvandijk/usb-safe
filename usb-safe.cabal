@@ -104,7 +104,7 @@ source-repository head
 
 Library
   GHC-Options: -O2 -Wall -fno-warn-orphans
-  build-depends: base                      >= 4 && < 4.2
+  build-depends: base                      >= 4 && < 4.3
                , base-unicode-symbols      == 0.1.*
                , usb                       == 0.3.*
                , bytestring                == 0.9.*

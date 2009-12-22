@@ -161,7 +161,7 @@ module System.USB.Safe
 
 -- from base:
 import Prelude                    ( fromInteger )
-import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar)
+import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
 import Control.Monad              ( Monad, return, (>>=), fail
                                   , (>>), when, liftM2
                                   )
@@ -186,7 +186,9 @@ import Control.Monad.Trans        ( MonadIO, liftIO )
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
 
 -- from unicode-symbols:
-import Prelude.Unicode            ( (∘), (≡), (∧) )
+import Data.Bool.Unicode          ( (∧) )
+import Data.Eq.Unicode            ( (≡) )
+import Data.Function.Unicode      ( (∘) )
 
 -- from usb:
 import qualified System.USB.Enumeration    as USB ( Device, deviceDesc )

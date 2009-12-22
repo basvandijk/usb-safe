@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -159,16 +160,21 @@ module System.USB.Safe
 --------------------------------------------------------------------------------
 
 -- from base:
+import Prelude                    ( fromInteger )
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar)
-
-import Control.Monad              ( when, liftM2 )
-
+import Control.Monad              ( Monad, return, (>>=), fail
+                                  , (>>), when, liftM2
+                                  )
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
-
+import Data.Function              ( ($) )
 import Data.Word                  ( Word8, Word16 )
-import Data.List                  ( filter, find )
-import Data.Maybe                 ( fromJust )
+import Data.Char                  ( String )
+import Data.Bool                  ( Bool( True, False ) )
+import Data.List                  ( map, head, filter, find )
+import Data.Maybe                 ( Maybe( Nothing, Just ), fromJust )
+import Text.Show                  ( Show )
+import System.IO                  ( IO )
 
 -- from bytestring:
 import Data.ByteString            ( ByteString )
@@ -178,6 +184,7 @@ import Control.Monad.Trans        ( MonadIO, liftIO )
 
 -- from MonadCatchIO-transformers:
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
+
 -- from unicode-symbols:
 import Prelude.Unicode            ( (∘), (≡), (∧) )
 

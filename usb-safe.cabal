@@ -8,7 +8,7 @@ copyright:     2009 Bas van Dijk
 author:        Bas van Dijk
 maintainer:    Bas van Dijk <v.dijk.bas@gmail.com>
 stability:     experimental
-category:      System
+category:      System, Monadic Regions
 synopsis:      Type-safe communication with USB devices.
 description:
   The usb library provides a standard Haskell abstraction layer over

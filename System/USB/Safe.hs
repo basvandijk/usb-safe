@@ -65,10 +65,24 @@
 --------------------------------------------------------------------------------
 
 module System.USB.Safe
-    ( -- * Device regions
+    ( -- * USB devices as scarce resources
+
+      {-| This module provides an instance for 'Resource' for 'Device'. This
+      allows you to open devices in a region which are then automatically closed when
+      the region terminates. Note that this module re-exports the
+      @Control.Monad.Trans.Region@ module from the @regions@ package which allows you
+      to:
+
+      * Open devices using 'open'.
+
+      * Run regions using 'runRegionT'.
+
+      * Concurrently run /top-level/ regions inside another region using
+        'forkTopRegion'.
+
+       * Duplicate regional device handles to a parent region using 'dup'.
+      -}
       module Control.Monad.Trans.Region
-    , DeviceRegionT
-    , TopDeviceRegion
 
       -- ** Regional device handles
     , RegionalDeviceHandle
@@ -96,7 +110,6 @@ module System.USB.Safe
     , getInterfaces
 
       -- ** Claiming interfaces
-    , IfRegionT
     , RegionalIfHandle
     , claim
 
@@ -261,17 +274,17 @@ import qualified System.USB.IO.Synchronous as USB ( Timeout, Size
 -- from regions:
 import Control.Monad.Trans.Region
 
-import Control.Monad.Trans.Region.Internal ( Resource
-                                           , Handle
-                                           , openResource
-                                           , closeResource
+import Control.Monad.Trans.Region.Unsafe ( Resource
+                                         , Handle
+                                         , openResource
+                                         , closeResource
 
-                                           , internalHandle
+                                         , internalHandle
 
-                                           , Dup
+                                         , Dup
 
-                                           , ParentOf
-                                           )
+                                         , ParentOf
+                                         )
 
 --------------------------------------------------------------------------------
 -- * Device regions
@@ -291,26 +304,6 @@ instance Resource USB.Device where
 
     closeResource = USB.closeDevice ∘ internalDevHndl
 
--- | Internally used function for getting the actual USB device handle from a
--- regional device handle.
-getInternalDevHndl ∷ RegionalDeviceHandle r → USB.DeviceHandle
-getInternalDevHndl = internalDevHndl ∘ internalHandle
-
-{-| Handy type synonym for a region in which USB devices can be opened which are
-automatically closed when the region terminates.
-
-You can run a device region with 'runRegionT'.
--}
-type DeviceRegionT s pr α = RegionT USB.Device s pr α
-
-{-| Handy type synonym for a device region which has 'IO' as its parent region
-which enables it to be:
-
- * directly executed in 'IO' using 'runTopRegion',
-
- * concurrently executed in a new thread by 'forkTopRegion'.
--}
-type TopDeviceRegion s α = TopRegion USB.Device s α
 
 --------------------------------------------------------------------------------
 -- ** Regional device handles
@@ -325,6 +318,11 @@ Note that you can also /duplicate/ a regional device handle by applying 'dup' to
 it.
 -}
 type RegionalDeviceHandle r = RegionalHandle USB.Device r
+
+-- | Internally used function for getting the actual USB device handle from a
+-- regional device handle.
+getInternalDevHndl ∷ RegionalDeviceHandle r → USB.DeviceHandle
+getInternalDevHndl = internalDevHndl ∘ internalHandle
 
 -- | Convenience function for retrieving the device from the given regional
 -- handle.
@@ -424,7 +422,7 @@ getConfigDescs = USB.deviceConfigs ∘ USB.deviceDesc ∘ USB.getDevice
 instance GetDescriptor (Config r) USB.ConfigDesc where
     getDesc (Config _ configDesc) = configDesc
 
-instance Dup Config USB.Device where
+instance Dup Config where
     dup (Config regionalDevHndlC configDesc) = do
       -- Duplicating a configuration just means duplicating the associated
       -- regional device handle:
@@ -668,13 +666,6 @@ instance Resource (Interface sCfg) where
     closeResource (interface → Interface {ifDevHndlI, ifNum}) =
         USB.releaseInterface ifDevHndlI ifNum
 
-{-| Handy type synonym for a region in which interfaces can be claimed which are
-automatically released when the region terminates.
-
-You can run an interface region with 'runRegionT'.
--}
-type IfRegionT sCfg s pr α = RegionT (Interface sCfg) s pr α
-
 {-| Handy type synonym for a regional handle to a claimed interface.
 
 A regional handle to a claimed interface can be created by applying 'claim' or
@@ -706,9 +697,9 @@ Exceptions:
 -}
 claim ∷ MonadCatchIO pr
       ⇒ Interface sCfg  -- ^ Interface you wish to claim
-      → IfRegionT sCfg s pr
-            (RegionalIfHandle sCfg
-                (RegionT (Interface sCfg) s pr))
+      → RegionT s pr
+          (RegionalIfHandle sCfg
+            (RegionT s pr))
 claim = open
 
 {-| Convenience function which finds the first interface of the given
@@ -720,8 +711,8 @@ withInterfaceWhich ∷ MonadCatchIO pr
                    ⇒ ConfigHandle sCfg -- ^ Handle to a configuration of which
                                        --   you want to claim an interface.
                    → (USB.Interface → Bool) -- ^ Predicate on the interface descriptors.
-                   → (∀ s. RegionalIfHandle sCfg (RegionT (Interface sCfg) s pr)
-                         → IfRegionT sCfg s pr α
+                   → (∀ s. RegionalIfHandle sCfg (RegionT s pr)
+                         → RegionT s pr α
                      ) -- ^ Continuation function.
                    → pr α
 withInterfaceWhich confHndl p f =
@@ -752,7 +743,7 @@ getAlternates regionalIfHandle@(internalHandle
 instance GetDescriptor (Alternate sIntrf r) USB.InterfaceDesc where
     getDesc (Alternate _ ifDesc) = ifDesc
 
-instance Dup (Alternate sCfg) (Interface sCfg) where
+instance Dup (Alternate sCfg) where
     dup (Alternate regionalIfHndlC ifDesc) = do
       regionalIfHndlP ← dup regionalIfHndlC
       return $ Alternate regionalIfHndlP ifDesc

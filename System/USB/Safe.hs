@@ -67,11 +67,14 @@
 module System.USB.Safe
     ( -- * USB devices as scarce resources
 
-      {-| This module provides an instance for 'Resource' for 'Device'. This
-      allows you to open devices in a region which are then automatically closed when
-      the region terminates. Note that this module re-exports the
-      @Control.Monad.Trans.Region@ module from the @regions@ package which allows you
-      to:
+      {-| This module provides an instance for 'Resource' for 'USB.Device'.
+      This allows you to open devices in a region which are automatically
+      closed when the region terminates but it disallows you to return handles
+      to these closed devices from the region so preventing I/O with closed
+      devices.
+
+      Note that this module re-exports the @Control.Monad.Trans.Region@ module
+      from the @regions@ package which allows you to:
 
       * Open devices using 'open'.
 

@@ -6,11 +6,9 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
@@ -281,12 +279,7 @@ import Control.Monad.Trans.Region.Unsafe ( Resource
                                          , Handle
                                          , openResource
                                          , closeResource
-
                                          , internalHandle
-
-                                         , Dup
-
-                                         , ParentOf
                                          )
 
 --------------------------------------------------------------------------------

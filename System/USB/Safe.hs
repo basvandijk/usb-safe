@@ -1,16 +1,17 @@
-{-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE UnicodeSyntax
+           , NoImplicitPrelude
+           , DeriveDataTypeable
+           , RankNTypes
+           , MultiParamTypeClasses
+           , FunctionalDependencies
+           , TypeFamilies
+           , TypeSynonymInstances
+           , UndecidableInstances
+           , GADTs
+           , EmptyDataDecls
+           , ViewPatterns
+           , NamedFieldPuns
+  #-}
 
 -------------------------------------------------------------------------------
 -- |

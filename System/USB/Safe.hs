@@ -11,6 +11,7 @@
            , EmptyDataDecls
            , ViewPatterns
            , NamedFieldPuns
+           , CPP
   #-}
 
 -------------------------------------------------------------------------------
@@ -273,8 +274,12 @@ import qualified System.USB.IO.Synchronous as USB ( Timeout, Size
                                                   , readBulk,  readInterrupt
                                                   , writeBulk, writeInterrupt
                                                   )
+#ifdef __HADDOCK__
+import System.USB.Exceptions                      ( USBException(..) )
+#endif
+
 -- from regions:
-import Control.Monad.Trans.Region
+import Control.Monad.Trans.Region -- (re-exported entirely)
 
 import Control.Monad.Trans.Region.Unsafe ( Resource
                                          , Handle
@@ -367,11 +372,11 @@ This is a blocking function which usually incurs a noticeable delay.
 
 Exceptions:
 
- * 'NotFoundException' if re-enumeration is required, or if the
-   device has been disconnected.
-
  * 'SettingAlreadySet' if a configuration has been set using 'setConfig',
    'useActiveConfig' and 'setConfigWhich'.
+
+ * 'NotFoundException' if re-enumeration is required, or if the
+   device has been disconnected.
 
  * Another 'USBException'.
 -}
@@ -395,6 +400,9 @@ which it was created.
 
 Note that, just like a regional device handle, a configuration can be duplicated
 to a parent region using 'dup'.
+
+Also note that you can get the descriptor of the configuration by applying
+'getDesc' to it.
 -}
 data Config (r ∷ * → *) = Config (RegionalDeviceHandle r)
                                  USB.ConfigDesc
@@ -441,8 +449,8 @@ ensure that you can't return this handle from these functions.
 data ConfigHandle sCfg = ConfigHandle (Handle USB.Device)
                                       USB.ConfigDesc
 
-{-| Set the active configuration for a device and then apply the given function
-to the resulting configuration handle.
+{-| Set the active configuration for a device and then apply the given
+continuation function to the resulting configuration handle.
 
 USB devices support multiple configurations of which only one can be active at
 any given time. When a configuration is set using 'setConfig', 'useActiveConfig'
@@ -468,16 +476,17 @@ This is a blocking function.
 
 Exceptions:
 
+ * 'SettingAlreadySet' if a configuration has already been set using
+   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
+
  * 'BusyException' if interfaces are currently claimed.
 
  * 'NoDeviceException' if the device has been disconnected
 
- * 'SettingAlreadySet' if a configuration has already been set using
-   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
-
  * Another 'USBException'.
 -}
-setConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+setConfig ∷ ∀ pr cr α
+          . (pr `ParentOf` cr, MonadCatchIO cr)
           ⇒ Config pr                          -- ^ The configuration you wish to set.
           → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
           → cr α
@@ -517,8 +526,8 @@ data SettingAlreadySet = SettingAlreadySet deriving (Show, Typeable)
 
 instance Exception SettingAlreadySet
 
-{-| Apply the given function to the configuration handle of the current active
-configuration of the given device handle.
+{-| Apply the given continuation function to the configuration handle of the
+current active configuration of the given device handle.
 
 This function needs to determine the current active configuration. This
 information may be cached by the operating system. If it isn't cached this
@@ -527,16 +536,17 @@ information.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
-
  * 'SettingAlreadySet' if a configuration has already been set using
    'setConfig', 'useActiveConfig' or 'setConfigWhich'.
 
  * 'NoActiveConfig' if the device is not configured.
 
+ * 'NoDeviceException' if the device has been disconnected.
+
  * Aanother 'USBException'.
 -}
-useActiveConfig ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+useActiveConfig ∷ ∀ pr cr α
+                . (pr `ParentOf` cr, MonadCatchIO cr)
                 ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device
                                           --   from which you want to use the
                                           --   active configuration.
@@ -569,6 +579,9 @@ This function calls 'setConfig' so do see its documentation.
 
 Exceptions:
 
+ * 'SettingAlreadySet' if a configuration has already been set using
+   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
+
  * 'NotFound' if no configuration is found that satisfies the given
    predicate.
 
@@ -576,12 +589,10 @@ Exceptions:
 
  * 'NoDeviceException' if the device has been disconnected
 
- * 'SettingAlreadySet' if a configuration has already been set using
-   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
-
  * Another 'USBException'.
 -}
-setConfigWhich ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+setConfigWhich ∷ ∀ pr cr α
+               . (pr `ParentOf` cr, MonadCatchIO cr)
                ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device for
                                          --   which you want to set a
                                          --   configuration.
@@ -692,7 +703,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-claim ∷ MonadCatchIO pr
+claim ∷ ∀ pr sCfg s
+      . MonadCatchIO pr
       ⇒ Interface sCfg  -- ^ Interface you wish to claim
       → RegionT s pr
           (RegionalIfHandle sCfg
@@ -701,10 +713,11 @@ claim = open
 
 {-| Convenience function which finds the first interface of the given
 configuration handle which satisfies the given predicate on its descriptors,
-then claims that interfaces and applies the given continuation function on the
+then claims that interfaces and applies the given continuation function to the
 resulting regional handle.
 -}
-withInterfaceWhich ∷ MonadCatchIO pr
+withInterfaceWhich ∷ ∀ pr sCfg α
+                   . MonadCatchIO pr
                    ⇒ ConfigHandle sCfg -- ^ Handle to a configuration of which
                                        --   you want to claim an interface.
                    → (USB.Interface → Bool) -- ^ Predicate on the interface descriptors.
@@ -722,11 +735,12 @@ withInterfaceWhich confHndl p f =
 -- * Alternates
 --------------------------------------------------------------------------------
 
--- | A supported 'Interface' alternate setting.
+-- | A supported 'Interface' alternate setting which you can retrieve using
+-- 'getAlternates'.
 data Alternate sCfg (r ∷ * → *) = Alternate (RegionalIfHandle sCfg r)
                                             USB.InterfaceDesc
 
-{-| Retrieve the supported alternate settings from the interface handle.
+{-| Retrieve the supported alternate settings from the given interface handle.
 
 Note that the alternate setting is parameterized by the same type variables as
 the interface handle. This ensures you can never use an alternate setting
@@ -761,7 +775,7 @@ data AlternateHandle sCfg sAlt (r ∷ * → *) = AlternateHandle
                                                  USB.InterfaceDesc
 
 {-| Activate an alternate setting for an interface and then apply the given
-function to the resulting alternate handle.
+continuation function to the resulting alternate handle.
 
 Simillary to configurations, interfaces support multiple alternate settings of
 which only one can be active at any given time. When an alternate is set using
@@ -783,7 +797,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-setAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+setAlternate ∷ ∀ pr cr sCfg α
+             . (pr `ParentOf` cr, MonadCatchIO cr)
              ⇒ Alternate sCfg pr -- ^ The alternate you wish to set.
              → (∀ sAlt. AlternateHandle sCfg sAlt pr → cr α)
                      -- ^ Continuation function.
@@ -819,7 +834,8 @@ Exceptions:
  * Aanother 'USBException'.
 
 -}
-useActiveAlternate ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+useActiveAlternate ∷ ∀ pr cr sCfg α
+                   . (pr `ParentOf` cr, MonadCatchIO cr)
                    ⇒ RegionalIfHandle sCfg pr -- ^ Regional handle to the
                                               --   interface from which you want
                                               --   to use the active alternate.
@@ -863,7 +879,8 @@ Exceptions:
 
  * Another 'USBException'.
 -}
-setAlternateWhich ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+setAlternateWhich ∷ ∀ pr cr sCfg α
+                  . (pr `ParentOf` cr, MonadCatchIO cr)
                   ⇒ RegionalIfHandle sCfg pr -- ^ Regional handle to the
                                              --   interface for which you want
                                              --   to set an alternate.
@@ -894,7 +911,7 @@ This type lifts the transfer direction and transfer type information to the
 type-level so that I/O operations like 'readEndpoint' and 'writeEndpoint' can
 specify which endpoints they support.
 
-You can retrieve the endpoints of an alternate by using 'getEndpoints'.
+You can retrieve the endpoints of an alternate using 'getEndpoints'.
 -}
 data Endpoint transDir
               transType
@@ -1027,8 +1044,7 @@ class ReadEndpoint transType where
         * Another 'USBException'.
     -}
     readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                 ⇒ Endpoint IN transType sAlt pr -- ^ The endpoint you wish to
-                                                 --   read from.
+                 ⇒ Endpoint IN transType sAlt pr
                  → ReadAction cr
 
 instance ReadEndpoint BULK where
@@ -1075,8 +1091,7 @@ class WriteEndpoint transType where
         * Another 'USBException'.
     -}
     writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                  ⇒ Endpoint OUT transType sAlt pr -- ^ The endpoint you wish to
-                                                   --   write to.
+                  ⇒ Endpoint OUT transType sAlt pr
                   → WriteAction cr
 
 instance WriteEndpoint BULK where
@@ -1114,7 +1129,8 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-control ∷ (pr `ParentOf` cr, MonadIO cr)
+control ∷ ∀ pr cr
+        . (pr `ParentOf` cr, MonadIO cr)
         ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to communicate
                                   --   with.
         → RequestType             -- ^ The type of request.
@@ -1148,7 +1164,8 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-readControl ∷ (pr `ParentOf` cr, MonadIO cr)
+readControl ∷ ∀ pr cr
+            . (pr `ParentOf` cr, MonadIO cr)
             ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to
                                       --   communicate with.
             → RequestType             -- ^ The type of request.
@@ -1179,7 +1196,8 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-writeControl ∷ (pr `ParentOf` cr, MonadIO cr)
+writeControl ∷ ∀ pr cr
+             . (pr `ParentOf` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to
                                        --   communicate with.
              → RequestType             -- ^ The type of request.

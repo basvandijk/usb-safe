@@ -201,7 +201,7 @@ import Control.Monad.Trans        ( MonadIO, liftIO )
 -- from MonadCatchIO-transformers:
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
 
--- from unicode-symbols:
+-- from base-unicode-symbols:
 import Data.Bool.Unicode          ( (∧) )
 import Data.Eq.Unicode            ( (≡) )
 import Data.Function.Unicode      ( (∘) )
@@ -279,14 +279,10 @@ import System.USB.Exceptions                      ( USBException(..) )
 #endif
 
 -- from regions:
+import Control.Resource ( Resource, Handle, openResource, closeResource )
+import Control.Monad.Trans.Region.Unsafe ( internalHandle )
 import Control.Monad.Trans.Region -- (re-exported entirely)
 
-import Control.Monad.Trans.Region.Unsafe ( Resource
-                                         , Handle
-                                         , openResource
-                                         , closeResource
-                                         , internalHandle
-                                         )
 
 --------------------------------------------------------------------------------
 -- * Device regions

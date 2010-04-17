@@ -131,20 +131,19 @@ module System.USB.Safe
       -- * Endpoints
     , Endpoint
     , getEndpoints
-
     , clearHalt
 
       -- *** Transfer directions
     , TransferDirection(..)
-    , OUT
-    , IN
+    , Out
+    , In
 
       -- *** Transfer types
     , TransferType(..)
-    , CONTROL
-    , ISOCHRONOUS
-    , BULK
-    , INTERRUPT
+    , Control
+    , Isochronous
+    , Bulk
+    , Interrupt
 
       -- * Endpoint I/O
     , ReadAction
@@ -896,12 +895,12 @@ setAlternateWhich regionalIfHndl p f =
 --------------------------------------------------------------------------------
 
 {-| I/O operations on endpoints are type-safe. You can only read from an
-endpoint with an 'IN' transfer direction and you can only write to an endpoint
-with an 'OUT' transfer direction.
+endpoint with an 'In' transfer direction and you can only write to an endpoint
+with an 'Out' transfer direction.
 
 Reading and writing also have different implementations for the different
-endpoint transfer types like: 'BULK' and 'INTERRUPT'. I/O with endpoints of
-other transfer types like 'CONTROL' and 'ISOCHRONOUS' is not possible.
+endpoint transfer types like: 'Bulk' and 'Interrupt'. I/O with endpoints of
+other transfer types like 'Control' and 'Isochronous' is not possible.
 
 This type lifts the transfer direction and transfer type information to the
 type-level so that I/O operations like 'readEndpoint' and 'writeEndpoint' can
@@ -984,29 +983,29 @@ clearHalt (Endpoint internalDevHndl endpointDesc) =
 --------------------------------------------------------------------------------
 
 data TransferDirection transDir where
-    Out ∷ TransferDirection OUT
-    In  ∷ TransferDirection IN
+    Out ∷ TransferDirection Out
+    In  ∷ TransferDirection In
 
 -- | Out transfer direction (host -> device) used for writing.
-data OUT
+data Out
 
 -- | In transfer direction (device -> host) used for reading.
-data IN
+data In
 
 --------------------------------------------------------------------------------
 -- *** Transfer types
 --------------------------------------------------------------------------------
 
 data TransferType transType where
-    Control     ∷ TransferType CONTROL
-    Isochronous ∷ TransferType ISOCHRONOUS
-    Bulk        ∷ TransferType BULK
-    Interrupt   ∷ TransferType INTERRUPT
+    Control     ∷ TransferType Control
+    Isochronous ∷ TransferType Isochronous
+    Bulk        ∷ TransferType Bulk
+    Interrupt   ∷ TransferType Interrupt
 
-data CONTROL
-data ISOCHRONOUS
-data BULK
-data INTERRUPT
+data Control
+data Isochronous
+data Bulk
+data Interrupt
 
 
 --------------------------------------------------------------------------------
@@ -1024,7 +1023,7 @@ type ReadAction r = USB.Timeout → USB.Size → r (ByteString, Bool)
 
 -- | Class of transfer types that support reading.
 class ReadEndpoint transType where
-    {-| Read bytes from an 'IN' endpoint with either a 'BULK' or 'INTERRUPT'
+    {-| Read bytes from an 'In' endpoint with either a 'Bulk' or 'Interrupt'
         transfer type.
 
         Exceptions:
@@ -1040,13 +1039,13 @@ class ReadEndpoint transType where
         * Another 'USBException'.
     -}
     readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                 ⇒ Endpoint IN transType sAlt pr
+                 ⇒ Endpoint In transType sAlt pr
                  → ReadAction cr
 
-instance ReadEndpoint BULK where
+instance ReadEndpoint Bulk where
     readEndpoint = transferWith USB.readBulk
 
-instance ReadEndpoint INTERRUPT where
+instance ReadEndpoint Interrupt where
     readEndpoint = transferWith USB.readInterrupt
 
 transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
@@ -1075,7 +1074,7 @@ type WriteAction r = USB.Timeout → ByteString → r (USB.Size, Bool)
 
 -- | Class of transfer types that support writing
 class WriteEndpoint transType where
-    {-| Write bytes to an 'OUT' endpoint with either a 'BULK' or 'INTERRUPT'
+    {-| Write bytes to an 'Out' endpoint with either a 'Bulk' or 'Interrupt'
         transfer type.
 
         Exceptions:
@@ -1087,13 +1086,13 @@ class WriteEndpoint transType where
         * Another 'USBException'.
     -}
     writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
-                  ⇒ Endpoint OUT transType sAlt pr
+                  ⇒ Endpoint Out transType sAlt pr
                   → WriteAction cr
 
-instance WriteEndpoint BULK where
+instance WriteEndpoint Bulk where
     writeEndpoint = transferWith USB.writeBulk
 
-instance WriteEndpoint INTERRUPT where
+instance WriteEndpoint Interrupt where
     writeEndpoint = transferWith USB.writeInterrupt
 
 

@@ -90,6 +90,7 @@ module System.USB.Safe
       -- ** Regional device handles
     , RegionalDeviceHandle
     , getDevice
+    , withDeviceWhich, NotFound(NotFound)
 
       -- * Getting descriptors
     , GetDescriptor
@@ -104,9 +105,9 @@ module System.USB.Safe
 
       -- ** Setting configurations
     , ConfigHandle
-    , setConfig,       SettingAlreadySet
-    , useActiveConfig, NoActiveConfig
-    , setConfigWhich,  NotFound
+    , setConfig,       SettingAlreadySet(SettingAlreadySet)
+    , useActiveConfig, NoActiveConfig(NoActiveConfig)
+    , setConfigWhich
 
       -- * Interfaces
     , Interface
@@ -115,7 +116,6 @@ module System.USB.Safe
       -- ** Claiming interfaces
     , RegionalIfHandle
     , claim
-
     , withInterfaceWhich
 
       -- * Alternates
@@ -176,13 +176,15 @@ module System.USB.Safe
 
 -- from base:
 import Prelude                    ( fromInteger )
+import Control.Applicative        ( (<*>) )
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
 import Control.Monad              ( Monad, return, (>>=), fail
-                                  , (>>), when, liftM2
+                                  , (>>), when
                                   )
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
+import Data.Functor               ( (<$>) )
 import Data.Word                  ( Word8, Word16 )
 import Data.Char                  ( String )
 import Data.Bool                  ( Bool( True, False ) )
@@ -296,6 +298,54 @@ getInternalDevHndl = internalDevHndl ∘ internalHandle
 getDevice ∷ RegionalDeviceHandle r → USB.Device
 getDevice = USB.getDevice ∘ getInternalDevHndl
 
+{-| Convenience function which finds the first device attached to the system
+which satisfies the given predicate on its descriptor, then opens that device
+and applies the given continuation function to the resulting device handle.
+
+Exceptions:
+
+ * 'NotFound' if no device is found which satisfies the given predicate.
+
+ * 'NoMemException' if there is a memory allocation failure.
+
+ * 'AccessException' if the user has insufficient permissions.
+
+ * 'NoDeviceException' if the device has been disconnected.
+
+ * Another 'USBException'.
+-}
+withDeviceWhich ∷ ∀ pr α
+                . MonadCatchIO pr
+                ⇒ USB.Ctx
+                → (USB.DeviceDesc → Bool) -- ^ Predicate on the device descriptor.
+                → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
+                                          -- ^ Continuation function
+                → pr α
+withDeviceWhich ctx p f = do devs ← liftIO $ USB.getDevices ctx
+                             useWhich devs with p f
+
+-- | Internally used function which searches through the given list of USB
+-- entities (like Devices, Configs, Interfaces or Alternates) for the first
+-- entity which satisfies the given predicate on its descriptor. Then opens or
+-- sets that entity by applying the given open or set function to the entity.
+useWhich ∷ ∀ k desc e (m ∷ * → *) α
+         . (GetDescriptor e desc, MonadIO m)
+         ⇒ [e]           -- ^
+         → (e → k → m α) -- ^ With
+         → (desc → Bool) -- ^ Predicate on descriptor
+         → k             -- ^ Continuation function
+         → m α
+useWhich ds w p f = case find (p ∘ getDesc) ds of
+                      Nothing → throw NotFound
+                      Just d  → w d f
+
+-- | This exception will be thrown in 'setConfigWhich', 'withInterfaceWhich' or
+-- 'setAlternateWhich' to indicate that no value was found which satisfied the
+-- given predicate.
+data NotFound = NotFound deriving (Show, Typeable)
+
+instance Exception NotFound
+
 
 --------------------------------------------------------------------------------
 -- * Getting descriptors
@@ -408,8 +458,10 @@ instance Dup Config where
 --------------------------------------------------------------------------------
 
 {-| A handle to an active 'Config' which you can get using: 'setConfig',
-'useActiveConfig' or 'setConfigWhich'. The type variable @sCfg@ is used to
-ensure that you can't return this handle from these functions.
+'useActiveConfig' or 'setConfigWhich'.
+
+The type variable @sCfg@ is used to ensure that you can't return this handle
+from these functions.
 -}
 data ConfigHandle sCfg = ConfigHandle (Handle USB.Device)
                                       USB.ConfigDesc
@@ -455,10 +507,11 @@ setConfig ∷ ∀ pr cr α
           ⇒ Config pr                          -- ^ The configuration you wish to set.
           → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
           → cr α
-setConfig (Config (internalHandle → devHndl@(DeviceHandle internalDevHndl
-                                                          configAlreadySetMVar))
-                  configDesc
-          ) f =
+setConfig (Config (internalHandle → devHndl@(DeviceHandle { internalDevHndl
+                                                          , configAlreadySetMVar
+                                                          }))
+                  configDesc)
+          f =
     withUnsettedMVar configAlreadySetMVar $ do
       liftIO $ USB.setConfig internalDevHndl $ USB.configValue configDesc
       f $ ConfigHandle devHndl configDesc
@@ -519,8 +572,8 @@ useActiveConfig ∷ ∀ pr cr α
                 → cr α
 useActiveConfig (internalHandle → devHndl@(DeviceHandle { internalDevHndl
                                                         , configAlreadySetMVar
-                                                        })
-                ) f =
+                                                        }))
+                f =
     withUnsettedMVar configAlreadySetMVar $ do
       activeConfigValue ← liftIO $ USB.getConfig internalDevHndl
       when (activeConfigValue ≡ 0) $ throw NoActiveConfig
@@ -565,16 +618,7 @@ setConfigWhich ∷ ∀ pr cr α
                                          --   descriptor.
                → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
                → cr α
-setConfigWhich regionalDevHndl p f =
-    case find (p ∘ getDesc) $ getConfigs regionalDevHndl of
-      Nothing     → throw NotFound
-      Just config → setConfig config f
-
--- | This exception will be thrown in 'setConfigWhich' or 'setAlternateWhich' to
--- indicate that no setting was found which satisfies the given predicate.
-data NotFound = NotFound deriving (Show, Typeable)
-
-instance Exception NotFound
+setConfigWhich h = useWhich (getConfigs h) setConfig
 
 
 --------------------------------------------------------------------------------
@@ -682,6 +726,17 @@ claim = Region.open
 configuration handle which satisfies the given predicate on its descriptors,
 then claims that interfaces and applies the given continuation function to the
 resulting regional handle.
+
+Exceptions:
+
+ * 'NotFound' if no interface was found that satisfies the fiven predicate.
+
+ * 'BusyException' if another program or driver has claimed the interface.
+
+ * 'NoDeviceException' if the device has been disconnected.
+
+ * Another 'USBException'.
+
 -}
 withInterfaceWhich ∷ ∀ pr sCfg α
                    . MonadCatchIO pr
@@ -692,10 +747,7 @@ withInterfaceWhich ∷ ∀ pr sCfg α
                          → RegionT s pr α
                      ) -- ^ Continuation function.
                    → pr α
-withInterfaceWhich confHndl p f =
-    case find (p ∘ getDesc) $ getInterfaces confHndl of
-      Nothing     → throw NotFound
-      Just intrf  → with intrf f
+withInterfaceWhich h = useWhich (getInterfaces h) with
 
 
 --------------------------------------------------------------------------------
@@ -848,18 +900,15 @@ Exceptions:
 -}
 setAlternateWhich ∷ ∀ pr cr sCfg α
                   . (pr `ParentOf` cr, MonadCatchIO cr)
-                  ⇒ RegionalIfHandle sCfg pr -- ^ Regional handle to the
-                                             --   interface for which you want
-                                             --   to set an alternate.
+                  ⇒ RegionalIfHandle sCfg pr   -- ^ Regional handle to the
+                                               --   interface for which you want
+                                               --   to set an alternate.
                   → (USB.InterfaceDesc → Bool) -- ^ Predicate on the interface
                                                --   descriptor.
                   → (∀ sAlt. AlternateHandle sCfg sAlt pr → cr α)
-                         -- ^ Continuation function
+                                               -- ^ Continuation function
                   → cr α
-setAlternateWhich regionalIfHndl p f =
-    case find (p ∘ getDesc) $ getAlternates regionalIfHndl of
-      Nothing  → throw NotFound
-      Just alt → setAlternate alt f
+setAlternateWhich h = useWhich (getAlternates h) setAlternate
 
 
 --------------------------------------------------------------------------------

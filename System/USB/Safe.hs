@@ -191,96 +191,68 @@ import Data.Maybe                 ( Maybe( Nothing, Just ), fromJust )
 import Text.Show                  ( Show )
 import System.IO                  ( IO )
 
--- from bytestring:
-import Data.ByteString            ( ByteString )
-
--- from transformers:
-import Control.Monad.Trans        ( MonadIO, liftIO )
-
--- from MonadCatchIO-transformers:
-import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
-
 -- from base-unicode-symbols:
 import Data.Bool.Unicode          ( (∧) )
 import Data.Eq.Unicode            ( (≡) )
 import Data.Function.Unicode      ( (∘) )
 
--- from usb:
-import qualified System.USB.Enumeration    as USB ( Device, deviceDesc )
-import qualified System.USB.DeviceHandling as USB ( DeviceHandle
-                                                  , openDevice, closeDevice
-                                                  , getDevice
+-- from bytestring:
+import Data.ByteString            ( ByteString )
 
-                                                  , getConfig, setConfig
+-- from transformers:
+import Control.Monad.IO.Class     ( MonadIO, liftIO )
 
-                                                  , InterfaceNumber
-                                                  , claimInterface
-                                                  , releaseInterface
-
-                                                  , setInterfaceAltSetting
-
-                                                  , clearHalt
-                                                  , resetDevice
-
-                                                  , kernelDriverActive
-                                                  , detachKernelDriver
-                                                  , attachKernelDriver
-                                                  )
-import qualified System.USB.Descriptors    as USB ( DeviceDesc
-                                                  , deviceConfigs
-
-                                                  , ConfigDesc
-                                                  , configValue
-                                                  , configInterfaces
-
-                                                  , Interface
-
-                                                  , InterfaceDesc
-                                                  , interfaceNumber
-                                                  , interfaceAltSetting
-                                                  , interfaceEndpoints
-
-                                                  , EndpointDesc
-                                                  , endpointAddress
-                                                  , endpointAttribs
-
-                                                  , EndpointAddress
-                                                  , transferDirection
-
-                                                  , TransferDirection(In, Out)
-                                                  , TransferType( Control
-                                                                , Isochronous
-                                                                , Bulk
-                                                                , Interrupt
-                                                                )
-
-                                                  , getLanguages
-                                                  , LangId
-                                                  , StrIx
-                                                  , getStrDesc
-                                                  , getStrDescFirstLang
-                                                  )
-import qualified System.USB.IO.Synchronous as USB ( Timeout, Size
-
-                                                  , RequestType(Class, Vendor)
-                                                  , Recipient
-
-                                                  , control
-                                                  , readControl, writeControl
-
-                                                  , getInterfaceAltSetting
-
-                                                  , readBulk,  readInterrupt
-                                                  , writeBulk, writeInterrupt
-                                                  )
-#ifdef __HADDOCK__
-import System.USB.Exceptions                      ( USBException(..) )
-#endif
+-- from MonadCatchIO-transformers:
+import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw )
 
 -- from regions:
-import Control.Resource ( Resource, Handle, openResource, closeResource )
+import Control.Resource ( Resource(..) )
+
 import Control.Monad.Trans.Region.Unsafe ( internalHandle )
-import Control.Monad.Trans.Region -- (re-exported entirely)
+import qualified Control.Monad.Trans.Region as Region ( open )
+import           Control.Monad.Trans.Region -- (re-exported entirely)
+
+-- from usb:
+import qualified System.USB.Initialization as USB
+    ( Ctx )
+
+import qualified System.USB.Enumeration as USB
+    ( Device, getDevices, deviceDesc )
+
+import qualified System.USB.DeviceHandling as USB
+    ( DeviceHandle, openDevice, closeDevice, getDevice
+    , getConfig, setConfig
+    , InterfaceNumber, claimInterface, releaseInterface
+    , setInterfaceAltSetting
+    , clearHalt, resetDevice
+    , kernelDriverActive, detachKernelDriver, attachKernelDriver
+    )
+
+import qualified System.USB.Descriptors as USB
+    ( DeviceDesc, deviceConfigs
+    , ConfigDesc, configValue, configInterfaces
+    , Interface
+    , InterfaceDesc, interfaceNumber, interfaceAltSetting, interfaceEndpoints
+    , EndpointDesc, endpointAddress, endpointAttribs
+    , EndpointAddress, transferDirection
+    , TransferDirection(In, Out)
+    , TransferType(Control, Isochronous, Bulk, Interrupt)
+    , getLanguages, LangId, StrIx, getStrDesc, getStrDescFirstLang
+    )
+
+import qualified System.USB.IO.Synchronous as USB
+    ( Timeout, Size
+    , RequestType(Class, Vendor)
+    , Recipient
+    , control, readControl, writeControl
+    , getInterfaceAltSetting
+    , readBulk,  readInterrupt
+    , writeBulk, writeInterrupt
+    )
+
+#ifdef __HADDOCK__
+import System.USB.Exceptions ( USBException(..) )
+#endif
 
 
 --------------------------------------------------------------------------------
@@ -296,10 +268,8 @@ instance Resource USB.Device where
           -- configuration has been set. See: 'setConfig'.
         }
 
-    openResource dev = liftM2 DeviceHandle (USB.openDevice dev)
-                                           (newMVar False)
-
-    closeResource = USB.closeDevice ∘ internalDevHndl
+    open dev = DeviceHandle <$> USB.openDevice dev <*> newMVar False
+    close = USB.closeDevice ∘ internalDevHndl
 
 
 --------------------------------------------------------------------------------
@@ -657,7 +627,7 @@ instance Resource (Interface sCfg) where
           -- alternate has been set. See: 'setAlternate'.
         }
 
-    openResource (Interface {ifDevHndlI, ifNum, ifDescs}) = do
+    open (Interface {ifDevHndlI, ifNum, ifDescs}) = do
       USB.claimInterface ifDevHndlI ifNum
       alternateAlreadySetMVar ← newMVar False
       return $ InterfaceHandle (Interface ifDevHndlI
@@ -666,19 +636,20 @@ instance Resource (Interface sCfg) where
                                )
                                alternateAlreadySetMVar
 
-    closeResource (interface → Interface {ifDevHndlI, ifNum}) =
+    close (interface → Interface {ifDevHndlI, ifNum}) =
         USB.releaseInterface ifDevHndlI ifNum
 
 {-| Handy type synonym for a regional handle to a claimed interface.
 
-A regional handle to a claimed interface can be created by applying 'claim' or
-'with' to the interface you wish to claim.
+A regional handle to a claimed interface can be created by applying 'claim'
+(@= 'Region.open'@) or 'with' to the interface you wish to claim.
 -}
 type RegionalIfHandle sCfg r = RegionalHandle (Interface sCfg) r
 
+
 {-| Claim the given interface in the interface region.
 
-Note that: @claim = @'open' which just reads better when applied to an
+Note that: @claim = @'Region.open' which just reads better when applied to an
 interface.
 
 Note that it is allowed to claim an already-claimed interface.
@@ -692,7 +663,7 @@ This is a non-blocking function.
 
 Exceptions:
 
- * 'BusyException' if the interface is already claimed.
+ * 'BusyException' if another program or driver has claimed the interface.
 
  * 'NoDeviceException' if the device has been disconnected.
 
@@ -704,7 +675,8 @@ claim ∷ ∀ pr sCfg s
       → RegionT s pr
           (RegionalIfHandle sCfg
             (RegionT s pr))
-claim = open
+claim = Region.open
+
 
 {-| Convenience function which finds the first interface of the given
 configuration handle which satisfies the given predicate on its descriptors,

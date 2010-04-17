@@ -69,11 +69,11 @@ source-repository head
 
 Library
   GHC-Options: -Wall -fno-warn-orphans
-  build-depends: base                      >= 4       && < 4.3
-               , base-unicode-symbols      >= 0.1.1   && < 0.3
-               , usb                       == 0.3.*
-               , bytestring                == 0.9.*
-               , regions                   == 0.4.*
-               , transformers              >= 0.1.4   && < 0.2
-               , MonadCatchIO-transformers >= 0.0.2.0 && < 0.2
+  build-depends: base                      >= 4     && < 4.3
+               , base-unicode-symbols      >= 0.1.1 && < 0.3
+               , usb                       >= 0.3   && < 0.4
+               , bytestring                >= 0.9   && < 0.10
+               , regions                   >= 0.5   && < 0.6
+               , transformers              >= 0.2   && < 0.3
+               , MonadCatchIO-transformers >= 0.2   && < 0.3
   exposed-modules: System.USB.Safe

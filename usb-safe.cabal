@@ -11,8 +11,8 @@ stability:     experimental
 category:      System, Monadic Regions
 synopsis:      Type-safe communication with USB devices.
 description:
-  The usb library provides a standard Haskell abstraction layer over
-  bindings-libusb providing: abstract types instead of Ptrs, automatic
+  The @usb@ package provides a standard Haskell abstraction layer over
+  @bindings-libusb@ providing: abstract types instead of @Ptr@s, automatic
   marshalling and unmarshalling, automatic garbage collection,
   exceptions instead of integer return codes, etc..
   .
@@ -22,12 +22,12 @@ description:
   interface. Or reading from an Out endpoint or writing to an In
   endpoint.
   .
-  usb-safe provides the following guarantees:
+  @usb-safe@ provides the following guarantees:
   .
   * You can't reference handles to devices that are closed. In other words: no
      I/O with closed handles is possible.
   .
-  * The programmer specifies the region in which devices should remain open. On
+  * The programmer specifies the /region/ in which devices should remain open. On
     exit from the region the opened devices will be closed automatically.
   .
   * You can't reference handles to configurations that have not been set.

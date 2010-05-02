@@ -339,9 +339,9 @@ useWhich ds w p f = case find (p ∘ getDesc) ds of
                       Nothing → throw NotFound
                       Just d  → w d f
 
--- | This exception will be thrown in 'setConfigWhich', 'withInterfaceWhich' or
--- 'setAlternateWhich' to indicate that no value was found which satisfied the
--- given predicate.
+-- | This exception can be thrown in 'withDeviceWhich', 'setConfigWhich',
+-- 'withInterfaceWhich' or 'setAlternateWhich' to indicate that no value was
+-- found which satisfied the given predicate.
 data NotFound = NotFound deriving (Show, Typeable)
 
 instance Exception NotFound
@@ -671,14 +671,9 @@ instance Resource (Interface sCfg) where
           -- alternate has been set. See: 'setAlternate'.
         }
 
-    open (Interface {ifDevHndlI, ifNum, ifDescs}) = do
+    open (i@Interface {ifDevHndlI, ifNum}) = do
       USB.claimInterface ifDevHndlI ifNum
-      alternateAlreadySetMVar ← newMVar False
-      return $ InterfaceHandle (Interface ifDevHndlI
-                                          ifNum
-                                          ifDescs
-                               )
-                               alternateAlreadySetMVar
+      InterfaceHandle i <$> newMVar False
 
     close (interface → Interface {ifDevHndlI, ifNum}) =
         USB.releaseInterface ifDevHndlI ifNum

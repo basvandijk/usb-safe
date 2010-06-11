@@ -273,8 +273,7 @@ openDevice ∷ MonadCatchIO pr
 openDevice dev = block $ do
                    h  ← liftIO $ USB.openDevice dev
                    mv ← liftIO $ newMVar False
-                   let closeAction = USB.closeDevice h
-                   ch ← register closeAction
+                   ch ← onExit $ USB.closeDevice h
                    return $ RegionalDeviceHandle h mv ch
 
 withDevice ∷ MonadCatchIO pr
@@ -692,8 +691,7 @@ claim ∷ ∀ pr sCfg s
 claim interface@(Interface internalDevHndl ifNum _) = block $ do
   mv ← liftIO $ newMVar False
   liftIO $ USB.claimInterface internalDevHndl ifNum
-  let closeAction = USB.releaseInterface internalDevHndl ifNum
-  ch ← register closeAction
+  ch ← onExit $ USB.releaseInterface internalDevHndl ifNum
   return $ RegionalInterfaceHandle interface mv ch
 
 withInterface ∷ ∀ pr sCfg α

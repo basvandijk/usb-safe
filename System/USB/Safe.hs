@@ -201,8 +201,8 @@ import Control.Monad.IO.Class     ( MonadIO, liftIO )
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw, block )
 
 -- from regions:
-import Control.Monad.Trans.Region.Close ( CloseHandle, register )
-import Control.Monad.Trans.Region -- (re-exported entirely)
+import Control.Monad.Trans.Region.OnExit ( CloseHandle, onExit )
+import Control.Monad.Trans.Region     -- (re-exported entirely)
 
 -- from usb:
 import qualified System.USB.Initialization as USB

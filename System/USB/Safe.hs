@@ -6,6 +6,7 @@
            , MultiParamTypeClasses
            , FunctionalDependencies
            , TypeSynonymInstances
+           , FlexibleContexts
            , UndecidableInstances
            , GADTs
            , EmptyDataDecls
@@ -146,6 +147,8 @@ module System.USB.Safe
     , readEndpoint
     , writeEndpoint
 
+    , enumReadEndpoint
+
       -- ** Control transfers
     , RequestType(..)
     , control
@@ -200,6 +203,10 @@ import Control.Monad.IO.Class     ( MonadIO, liftIO )
 -- from MonadCatchIO-transformers:
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw, block )
 
+-- from iteratee:
+import Data.Iteratee.Base             ( EnumeratorGM )
+import Data.Iteratee.Base.StreamChunk ( ReadableChunk )
+
 -- from regions:
 import Control.Monad.Trans.Region.OnExit ( CloseHandle, onExit )
 import Control.Monad.Trans.Region     -- (re-exported entirely)
@@ -242,8 +249,12 @@ import qualified System.USB.IO.Synchronous as USB
     , writeBulk, writeInterrupt
     )
 
+import qualified System.USB.IO.Synchronous.Enumerator as USB
+    ( enumReadBulk, enumReadInterrupt )
+
 #ifdef __HADDOCK__
-import System.USB.Exceptions ( USBException(..) )
+import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
+import System.USB.Exceptions  ( USBException(..) )
 #endif
 
 
@@ -1049,11 +1060,12 @@ instance ReadEndpoint Interrupt where
 transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
              ⇒ (USB.DeviceHandle → USB.EndpointAddress → α → USB.Timeout → IO β)
              → (Endpoint transDir transType sAlt pr    → α → USB.Timeout → cr β)
-transferWith f (Endpoint internalDevHndl endpointDesc) =
-    \sbs timeout → liftIO $ f internalDevHndl
-                              (USB.endpointAddress endpointDesc)
-                              sbs
-                              timeout
+transferWith f = \endpoint sbs timeout → liftIO $ wrap f endpoint sbs timeout
+
+wrap ∷ (USB.DeviceHandle → USB.EndpointAddress → α)
+     → (Endpoint transDir transType sAlt pr → α)
+wrap f = \(Endpoint internalDevHndl endpointDesc) →
+           f internalDevHndl (USB.endpointAddress endpointDesc)
 
 --------------------------------------------------------------------------------
 
@@ -1088,6 +1100,29 @@ instance WriteEndpoint Bulk where
 
 instance WriteEndpoint Interrupt where
     writeEndpoint = transferWith USB.writeInterrupt
+
+
+--------------------------------------------------------------------------------
+
+-- | Class of transfer types that support enumerating.
+class EnumReadEndpoint transType where
+    -- | An enumerator for an 'In' endpoint with either a 'Bulk' or 'Interrupt'
+    -- transfer type.
+    enumReadEndpoint ∷ (pr `ParentOf` cr, MonadCatchIO cr, ReadableChunk s Word8)
+                     ⇒ Endpoint In transType sAlt pr
+                     → USB.Size    -- ^ Chunk size. A good value for this would be
+                                   --   the @'maxPacketSize' . 'endpointMaxPacketSize'@.
+                     → USB.Timeout -- ^ Timeout (in milliseconds) that this function
+                                   --   should wait for each chunk before giving up
+                                   --   due to no response being received.  For no
+                                   --   timeout, use value 0.
+                     → EnumeratorGM s Word8 cr α
+
+instance EnumReadEndpoint Bulk where
+    enumReadEndpoint = wrap USB.enumReadBulk
+
+instance EnumReadEndpoint Interrupt where
+    enumReadEndpoint = wrap USB.enumReadInterrupt
 
 
 --------------------------------------------------------------------------------

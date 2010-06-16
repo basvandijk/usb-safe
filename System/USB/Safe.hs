@@ -150,6 +150,7 @@ module System.USB.Safe
     , enumReadEndpoint
 
       -- ** Control transfers
+    , ControlAction
     , RequestType(..)
     , control
     , readControl
@@ -181,7 +182,7 @@ import Control.Monad              ( Monad, return, (>>=), fail
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
-import Data.Word                  ( Word8, Word16 )
+import Data.Word                  ( Word8 )
 import Data.Char                  ( String )
 import Data.Bool                  ( Bool( True, False ) )
 import Data.List                  ( map, head, filter, find )
@@ -242,7 +243,7 @@ import qualified System.USB.Descriptors as USB
 import qualified System.USB.IO.Synchronous as USB
     ( Timeout, Size
     , RequestType(Class, Vendor)
-    , Recipient
+    , Recipient, Request, Value, Index
     , control, readControl, writeControl
     , getInterfaceAltSetting
     , readBulk,  readInterrupt
@@ -1129,11 +1130,12 @@ instance EnumReadEndpoint Interrupt where
 -- ** Control transfers
 --------------------------------------------------------------------------------
 
+-- | Handy type synonym that names the parameters of a control transfer.
 type ControlAction α = RequestType
                      → USB.Recipient
-                     → Word8
-                     → Word16
-                     → Word16
+                     → USB.Request
+                     → USB.Value
+                     → USB.Index
                      → α
 
 {-| Control transfers can have three request types: @Standard@, @Class@ and
@@ -1147,8 +1149,6 @@ reqTypeToInternal Class  = USB.Class
 reqTypeToInternal Vendor = USB.Vendor
 
 {-| Perform a USB /control/ request that does not transfer data.
-
-The /value/ and /index/ values should be given in host-endian byte order.
 
 Exceptions:
 
@@ -1173,8 +1173,6 @@ control regionalDevHndl = \reqType reqRecipient request value index → \timeout
 
 {-| Perform a USB /control/ read.
 
-The /value/ and /index/ values should be given in host-endian byte order.
-
 Exceptions:
 
  * 'PipeException' if the control request was not supported by the device
@@ -1196,8 +1194,6 @@ readControl regionalDevHndl = \reqType reqRecipient request value index → \tim
                              size
 
 {-| Perform a USB /control/ write.
-
-The /value/ and /index/ values should be given in host-endian byte order.
 
 Exceptions:
 

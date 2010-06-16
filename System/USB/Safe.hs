@@ -183,8 +183,8 @@ import Data.Char                  ( String )
 import Data.Bool                  ( Bool( True, False ) )
 import Data.List                  ( map, head, filter, find )
 import Data.Maybe                 ( Maybe( Nothing, Just ), fromJust )
-import Text.Show                  ( Show )
 import System.IO                  ( IO )
+import Text.Show                  ( Show )
 
 -- from base-unicode-symbols:
 import Data.Bool.Unicode          ( (∧) )
@@ -1017,7 +1017,7 @@ many bytes to read. The function returns an action which, when executed,
 performs the actual read and returns the bytestring that was read paired with an
 indication if the transfer timed out.
 -}
-type ReadAction r = USB.Timeout → USB.Size → r (ByteString, Bool)
+type ReadAction r = USB.Size → USB.Timeout → r (ByteString, Bool)
 
 -- | Class of transfer types that support reading.
 class ReadEndpoint transType where
@@ -1047,17 +1047,13 @@ instance ReadEndpoint Interrupt where
     readEndpoint = transferWith USB.readInterrupt
 
 transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
-             ⇒ ( USB.DeviceHandle → USB.EndpointAddress
-               → USB.Timeout → α → IO (β, Bool)
-               )
-             → ( Endpoint transDir transType sAlt pr
-               → USB.Timeout → α → cr (β, Bool)
-               )
+             ⇒ (USB.DeviceHandle → USB.EndpointAddress → α → USB.Timeout → IO β)
+             → (Endpoint transDir transType sAlt pr    → α → USB.Timeout → cr β)
 transferWith f (Endpoint internalDevHndl endpointDesc) =
-    \timeout sbs → liftIO $ f internalDevHndl
+    \sbs timeout → liftIO $ f internalDevHndl
                               (USB.endpointAddress endpointDesc)
-                              timeout
                               sbs
+                              timeout
 
 --------------------------------------------------------------------------------
 
@@ -1068,7 +1064,7 @@ write. The function returns an action which, when exectued, returns the number
 of bytes that were actually written paired with an indication if the transfer
 timed out.
 -}
-type WriteAction r = USB.Timeout → ByteString → r (USB.Size, Bool)
+type WriteAction r = ByteString → USB.Timeout → r (USB.Size, Bool)
 
 -- | Class of transfer types that support writing
 class WriteEndpoint transType where
@@ -1098,6 +1094,13 @@ instance WriteEndpoint Interrupt where
 -- ** Control transfers
 --------------------------------------------------------------------------------
 
+type ControlAction α = RequestType
+                     → USB.Recipient
+                     → Word8
+                     → Word16
+                     → Word16
+                     → α
+
 {-| Control transfers can have three request types: @Standard@, @Class@ and
 @Vendor@. We disallow @Standard@ requests however because with them you can
 destroy the safety guarantees that this module provides.
@@ -1122,21 +1125,9 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-control ∷ ∀ pr cr
-        . (pr `ParentOf` cr, MonadIO cr)
-        ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to communicate
-                                  --   with.
-        → RequestType             -- ^ The type of request.
-        → USB.Recipient           -- ^ The recipient of the request.
-        → Word8                   -- ^ Request.
-        → Word16                  -- ^ Value.
-        → Word16                  -- ^ Index.
-        → USB.Timeout             -- ^ Timeout (in milliseconds) that this
-                                  --   function should wait before giving up due
-                                  --   to no response being received. For no
-                                  --   timeout, use value 0.
-        → cr ()
-control regionalDevHndl reqType reqRecipient request value index timeout =
+control ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+        ⇒ RegionalDeviceHandle pr → ControlAction (USB.Timeout → cr ())
+control regionalDevHndl = \reqType reqRecipient request value index → \timeout →
     liftIO $ USB.control (getInternalDevHndl regionalDevHndl)
                          (reqTypeToInternal reqType)
                          reqRecipient
@@ -1157,17 +1148,9 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-readControl ∷ ∀ pr cr
-            . (pr `ParentOf` cr, MonadIO cr)
-            ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to
-                                      --   communicate with.
-            → RequestType             -- ^ The type of request.
-            → USB.Recipient           -- ^ The recipient of the request.
-            → Word8                   -- ^ Request.
-            → Word16                  -- ^ Value.
-            → Word16                  -- ^ Index.
-            → ReadAction cr
-readControl regionalDevHndl reqType reqRecipient request value index = \timeout size →
+readControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+            ⇒ RegionalDeviceHandle pr → ControlAction (ReadAction cr)
+readControl regionalDevHndl = \reqType reqRecipient request value index → \timeout size →
     liftIO $ USB.readControl (getInternalDevHndl regionalDevHndl)
                              (reqTypeToInternal reqType)
                              reqRecipient
@@ -1189,17 +1172,9 @@ Exceptions:
 
  *  Another 'USBException'.
 -}
-writeControl ∷ ∀ pr cr
-             . (pr `ParentOf` cr, MonadIO cr)
-             ⇒ RegionalDeviceHandle pr -- ^ A handle for the device to
-                                       --   communicate with.
-             → RequestType             -- ^ The type of request.
-             → USB.Recipient           -- ^ The recipient of the request.
-             → Word8                   -- ^ Request.
-             → Word16                  -- ^ Value.
-             → Word16                  -- ^ Index.
-             → WriteAction cr
-writeControl regionalDevHndl reqType reqRecipient request value index = \timeout input →
+writeControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+             ⇒ RegionalDeviceHandle pr → ControlAction (WriteAction cr)
+writeControl regionalDevHndl = \reqType reqRecipient request value index → \timeout input →
     liftIO $ USB.writeControl (getInternalDevHndl regionalDevHndl)
                               (reqTypeToInternal reqType)
                               reqRecipient

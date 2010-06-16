@@ -144,6 +144,7 @@ module System.USB.Safe
       -- * Endpoint I/O
     , ReadAction
     , WriteAction
+
     , readEndpoint
     , writeEndpoint
 
@@ -280,6 +281,21 @@ instance Dup RegionalDeviceHandle where
     dup (RegionalDeviceHandle h mv ch) =
       liftM (RegionalDeviceHandle h mv) $ dup ch
 
+{-| Open a device and obtain a regional device handle. The device is
+automatically closed when the region terminates.
+
+This is a non-blocking function; no requests are sent over the bus.
+
+Exceptions:
+
+ * 'NoMemException' if there is a memory allocation failure.
+
+ * 'AccessException' if the user has insufficient permissions.
+
+ * 'NoDeviceException' if the device has been disconnected.
+
+ * Another 'USBException'.
+-}
 openDevice ∷ MonadCatchIO pr
            ⇒ USB.Device → RegionT s pr (RegionalDeviceHandle (RegionT s pr))
 openDevice dev = block $ do
@@ -288,6 +304,9 @@ openDevice dev = block $ do
                    ch ← onExit $ USB.closeDevice h
                    return $ RegionalDeviceHandle h mv ch
 
+{-| Convenience function which opens the device, applies the given continuation
+function to the resulting regional device handle and runs the resulting region.
+-}
 withDevice ∷ MonadCatchIO pr
            ⇒ USB.Device
            → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
@@ -1024,8 +1043,8 @@ data Interrupt
 
 {-| Handy type synonym for read transfers.
 
-A @ReadAction@ is a function which takes a timeout and a size which defines how
-many bytes to read. The function returns an action which, when executed,
+A @ReadAction@ is a function which takes a size which defines how many bytes to
+read and a timeout. The function returns an action which, when executed,
 performs the actual read and returns the bytestring that was read paired with an
 indication if the transfer timed out.
 -}
@@ -1072,8 +1091,8 @@ wrap f = \(Endpoint internalDevHndl endpointDesc) →
 
 {-| Handy type synonym for write transfers.
 
-A @WriteAction@ is a function which takes a timeout and the bytestring to
-write. The function returns an action which, when exectued, returns the number
+A @WriteAction@ is a function which takes the bytestring to write and a
+timeout. The function returns an action which, when exectued, returns the number
 of bytes that were actually written paired with an indication if the transfer
 timed out.
 -}

@@ -1,0 +1,109 @@
+0.7
+
+(Released on: Wed Jun 16 09:12:24 UTC 2010)
+
+* Export type 'ControlAction'
+
+* Add 'enumReadEndpoint'
+
+* Support usb-0.4
+
+* Use regions >= 0.6
+
+
+0.6
+
+(Released on: Sun May 2 20:26:33 UTC 2010)
+
+* Added function withDeviceWhich
+
+* Updated dependencies
+  base-unicode-symbols      >= 0.1.1 && < 0.3
+  regions                   >= 0.5   && < 0.6
+  transformers              >= 0.2   && < 0.3
+  MonadCatchIO-transformers >= 0.2   && < 0.3
+
+* Uncapitalized the transfer direction and transfer type types
+
+
+0.5.1.1
+
+(Released on: Thu Feb 4 10:21:29 UTC 2010)
+
+* Depend on regions-0.4.*
+
+* Depend on more compatible versions of MonadCatchIO-transformers
+
+
+0.5.1
+
+(Released on: Sat Jan 23 14:25:41 UTC 2010)
+
+* Depend on new regions == 0.3.*
+
+* Bumped version to 0.5.1 because the API of regions got changed and
+  this package re-exports a module from that package
+
+
+0.5
+
+(Released on: Thu Jan 7 14:17:19 UTC 2010)
+
+* Make use of the new regions-0.2
+
+
+0.4.1
+
+(Released on: Wed Dec 23 13:47:36 UTC 2009)
+
+* Tested with base-4.2
+
+* Depend on base-unicode-symbols instead of unicode-symbols
+
+* Exported function withInterfaceWhich
+
+
+0.4
+
+(Released on: Mon Dec 21 09:57:10 UTC 2009)
+
+* Generalized regions and moved them to their own package: regions
+
+* Added derived Functor, Applicative, Alternative, MonadPlus and
+  MonadFix instances for DeviceRegionT
+
+* Added function setConfigWhich and setAlternateWhich
+
+* Filtering endpoints now works with given transfer direction and
+  transfer type as GADTs
+
+
+0.3
+
+(Released on: Wed Dec 9 22:53:04 UTC 2009)
+
+* Renamed EndpointHandle to FilteredEndpoint
+
+
+0.2
+
+(Released on: Wed Dec 9 14:43:25 UTC 2009)
+
+* Added TopDeviceRegion
+
+* Added 'type TopDeviceRegion s = DeviceRegionT s IO'
+
+* Added function 'runTopDeviceRegion'
+
+* Renamed 'forkDeviceRegionT' to 'forkTopDeviceRegion'
+
+* Changed the type of it to:
+  'forkTopDeviceRegion :: MonadIO m =>
+     TopDeviceRegion s () -> DeviceRegionT s m ThreadId'
+
+
+0.1
+
+(Released on: Tue Dec 8 21:07:09 UTC 2009)
+
+* Initial release

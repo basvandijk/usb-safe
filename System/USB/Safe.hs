@@ -154,7 +154,7 @@ module System.USB.Safe
     , ControlAction
     , RequestType(..)
     , control
-    , readControl
+    , readControl, readControlExact
     , writeControl
 
       -- * String descriptors
@@ -242,22 +242,25 @@ import qualified System.USB.Descriptors as USB
     )
 
 import qualified System.USB.IO.Synchronous as USB
-    ( Timeout, Size
+    ( Timeout, TimedOut, Size
     , RequestType(Class, Vendor)
     , Recipient, Request, Value, Index
-    , control, readControl, writeControl
-    , getInterfaceAltSetting
+    , control, readControl, readControlExact, writeControl
     , readBulk,  readInterrupt
     , writeBulk, writeInterrupt
     )
 
-import qualified System.USB.IO.Synchronous.Enumerator as USB
-    ( enumReadBulk, enumReadInterrupt )
+import qualified System.USB.IO.StandardDeviceRequests as USB
+    ( getInterfaceAltSetting )
 
 #ifdef __HADDOCK__
 import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
 import System.USB.Exceptions  ( USBException(..) )
 #endif
+
+-- from usb-enumerator:
+import qualified System.USB.IO.Synchronous.Enumerator as USB
+    ( enumReadBulk, enumReadInterrupt )
 
 
 --------------------------------------------------------------------------------
@@ -1048,7 +1051,7 @@ read and a timeout. The function returns an action which, when executed,
 performs the actual read and returns the bytestring that was read paired with an
 indication if the transfer timed out.
 -}
-type ReadAction r = USB.Size → USB.Timeout → r (ByteString, Bool)
+type ReadAction r = USB.Size → USB.Timeout → r (ByteString, USB.TimedOut)
 
 -- | Class of transfer types that support reading.
 class ReadEndpoint transType where
@@ -1096,7 +1099,7 @@ timeout. The function returns an action which, when exectued, returns the number
 of bytes that were actually written paired with an indication if the transfer
 timed out.
 -}
-type WriteAction r = ByteString → USB.Timeout → r (USB.Size, Bool)
+type WriteAction r = ByteString → USB.Timeout → r (USB.Size, USB.TimedOut)
 
 -- | Class of transfer types that support writing
 class WriteEndpoint transType where
@@ -1211,6 +1214,22 @@ readControl regionalDevHndl = \reqType reqRecipient request value index → \tim
                              index
                              timeout
                              size
+
+-- | A convenience function similar to 'readControl' which checks if the
+-- specified number of bytes to read were actually read. Throws an 'IOException'
+-- if this is not the case.
+readControlExact ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+                 ⇒ RegionalDeviceHandle pr → ControlAction
+                     (USB.Size → USB.Timeout → cr ByteString)
+readControlExact regionalDevHndl = \reqType reqRecipient request value index → \timeout size →
+    liftIO $ USB.readControlExact (getInternalDevHndl regionalDevHndl)
+                                  (reqTypeToInternal reqType)
+                                  reqRecipient
+                                  request
+                                  value
+                                  index
+                                  timeout
+                                  size
 
 {-| Perform a USB /control/ write.
 

@@ -84,7 +84,7 @@ module System.USB.Safe
 
     , openDevice
     , withDevice
-    , withDeviceWhich, NotFound(NotFound)
+    , withDeviceWhich
 
     , getDevice
 
@@ -253,9 +253,11 @@ import qualified System.USB.IO.Synchronous as USB
 import qualified System.USB.IO.StandardDeviceRequests as USB
     ( getInterfaceAltSetting )
 
+import qualified System.USB.Exceptions as USB
+    ( USBException(..) )
+
 #ifdef __HADDOCK__
 import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
-import System.USB.Exceptions  ( USBException(..) )
 #endif
 
 -- from usb-enumerator:
@@ -291,13 +293,13 @@ This is a non-blocking function; no requests are sent over the bus.
 
 Exceptions:
 
- * 'NoMemException' if there is a memory allocation failure.
+ * 'USB.NoMemException' if there is a memory allocation failure.
 
- * 'AccessException' if the user has insufficient permissions.
+ * 'USB.AccessException' if the user has insufficient permissions.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 openDevice ∷ MonadCatchIO pr
            ⇒ USB.Device → RegionT s pr (RegionalDeviceHandle (RegionT s pr))
@@ -322,15 +324,15 @@ and applies the given continuation function to the resulting device handle.
 
 Exceptions:
 
- * 'NotFound' if no device is found which satisfies the given predicate.
+ * 'USB.NotFoundException' if no device is found which satisfies the given predicate.
 
- * 'NoMemException' if there is a memory allocation failure.
+ * 'USB.NoMemException' if there is a memory allocation failure.
 
- * 'AccessException' if the user has insufficient permissions.
+ * 'USB.AccessException' if the user has insufficient permissions.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 withDeviceWhich ∷ ∀ pr α
                 . MonadCatchIO pr
@@ -354,15 +356,8 @@ useWhich ∷ ∀ k desc e (m ∷ * → *) α
          → k             -- ^ Continuation function
          → m α
 useWhich ds w p f = case find (p ∘ getDesc) ds of
-                      Nothing → throw NotFound
+                      Nothing → throw USB.NotFoundException
                       Just d  → w d f
-
--- | This exception can be thrown in 'withDeviceWhich', 'setConfigWhich',
--- 'withInterfaceWhich' or 'setAlternateWhich' to indicate that no value was
--- found which satisfied the given predicate.
-data NotFound = NotFound deriving (Show, Typeable)
-
-instance Exception NotFound
 
 -- | Internally used function for getting the actual USB device handle from a
 -- regional device handle.
@@ -407,7 +402,7 @@ exception is thrown.
 If the reset fails, the descriptors change, or the previous state cannot be
 restored, the device will appear to be disconnected and reconnected. This means
 that the device handle is no longer valid (you should close it) and rediscover
-the device. A 'NotFoundException' is raised to indicate that this is the case.
+the device. A 'USB.NotFoundException' is raised to indicate that this is the case.
 
 /TODO: Think about how to handle the implications of the the previous paragraph!/
 
@@ -418,10 +413,10 @@ Exceptions:
  * 'SettingAlreadySet' if a configuration has been set using 'setConfig',
    'useActiveConfig' and 'setConfigWhich'.
 
- * 'NotFoundException' if re-enumeration is required, or if the
+ * 'USB.NotFoundException' if re-enumeration is required, or if the
    device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 resetDevice ∷ (pr `ParentOf` cr, MonadIO cr)
             ⇒ RegionalDeviceHandle pr → cr ()
@@ -522,11 +517,11 @@ Exceptions:
  * 'SettingAlreadySet' if a configuration has already been set using
    'setConfig', 'useActiveConfig' or 'setConfigWhich'.
 
- * 'BusyException' if interfaces are currently claimed.
+ * 'USB.BusyException' if interfaces are currently claimed.
 
- * 'NoDeviceException' if the device has been disconnected
+ * 'USB.NoDeviceException' if the device has been disconnected
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 setConfig ∷ ∀ pr cr α
           . (pr `ParentOf` cr, MonadCatchIO cr)
@@ -583,9 +578,9 @@ Exceptions:
 
  * 'NoActiveConfig' if the device is not configured.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Aanother 'USBException'.
+ * Aanother 'USB.USBException'.
 -}
 useActiveConfig ∷ ∀ pr cr α
                 . (pr `ParentOf` cr, MonadCatchIO cr)
@@ -621,14 +616,14 @@ Exceptions:
  * 'SettingAlreadySet' if a configuration has already been set using
    'setConfig', 'useActiveConfig' or 'setConfigWhich'.
 
- * 'NotFound' if no configuration is found that satisfies the given
+ * 'USB.NotFoundException' if no configuration is found that satisfies the given
    predicate.
 
- * 'BusyException' if interfaces are currently claimed.
+ * 'USB.BusyException' if interfaces are currently claimed.
 
- * 'NoDeviceException' if the device has been disconnected
+ * 'USB.NoDeviceException' if the device has been disconnected
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 setConfigWhich ∷ ∀ pr cr α
                . (pr `ParentOf` cr, MonadCatchIO cr)
@@ -710,11 +705,11 @@ This is a non-blocking function.
 
 Exceptions:
 
- * 'BusyException' if another program or driver has claimed the interface.
+ * 'USB.BusyException' if another program or driver has claimed the interface.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 claim ∷ ∀ pr sCfg s
       . MonadCatchIO pr
@@ -744,13 +739,13 @@ resulting regional handle.
 
 Exceptions:
 
- * 'NotFound' if no interface was found that satisfies the fiven predicate.
+ * 'USB.NotFoundException' if no interface was found that satisfies the fiven predicate.
 
- * 'BusyException' if another program or driver has claimed the interface.
+ * 'USB.BusyException' if another program or driver has claimed the interface.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 
 -}
 withInterfaceWhich ∷ ∀ pr sCfg α
@@ -826,12 +821,12 @@ This is a blocking function.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if an alternate has already been set using
    'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 setAlternate ∷ ∀ pr cr sCfg α
              . (pr `ParentOf` cr, MonadCatchIO cr)
@@ -863,12 +858,12 @@ control transfer is submitted to retrieve the information.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if an alternate has already been set using
    'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
- * Aanother 'USBException'.
+ * Another 'USB.USBException'.
 
 -}
 useActiveAlternate ∷ ∀ pr cr sCfg α
@@ -903,15 +898,15 @@ This function calls 'setAlternate' so do see its documentation.
 
 Exceptions:
 
- * 'NotFound' if no alternate is found that satisfies the given
+ * 'USB.NotFoundException' if no alternate is found that satisfies the given
    predicate.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
  * 'SettingAlreadySet' if an alternate has already been set using
    'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 setAlternateWhich ∷ ∀ pr cr sCfg α
                   . (pr `ParentOf` cr, MonadCatchIO cr)
@@ -1001,9 +996,9 @@ This is a blocking function.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 clearHalt ∷ (pr `ParentOf` cr, MonadIO cr)
           ⇒ Endpoint transDir transType sAlt pr → cr ()
@@ -1060,15 +1055,15 @@ class ReadEndpoint transType where
 
         Exceptions:
 
-        * 'PipeException' if the endpoint halted.
+        * 'USB.PipeException' if the endpoint halted.
 
-        * 'OverflowException' if the device offered more data,
+        * 'USB.OverflowException' if the device offered more data,
           see /Packets and overflows/ in the libusb documentation:
           <http://libusb.sourceforge.net/api-1.0/packetoverflow.html>.
 
-        * 'NoDeviceException' if the device has been disconnected.
+        * 'USB.NoDeviceException' if the device has been disconnected.
 
-        * Another 'USBException'.
+        * Another 'USB.USBException'.
     -}
     readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
                  ⇒ Endpoint In transType sAlt pr
@@ -1108,11 +1103,11 @@ class WriteEndpoint transType where
 
         Exceptions:
 
-        * 'PipeException' if the endpoint halted.
+        * 'USB.PipeException' if the endpoint halted.
 
-        * 'NoDeviceException' if the device has been disconnected.
+        * 'USB.NoDeviceException' if the device has been disconnected.
 
-        * Another 'USBException'.
+        * Another 'USB.USBException'.
     -}
     writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
                   ⇒ Endpoint Out transType sAlt pr
@@ -1174,13 +1169,13 @@ reqTypeToInternal Vendor = USB.Vendor
 
 Exceptions:
 
- * 'TimeoutException' if the transfer timed out.
+ * 'USB.TimeoutException' if the transfer timed out.
 
- * 'PipeException' if the control request was not supported by the device
+ * 'USB.PipeException' if the control request was not supported by the device
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- *  Another 'USBException'.
+ *  Another 'USB.USBException'.
 -}
 control ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
         ⇒ RegionalDeviceHandle pr → ControlAction (USB.Timeout → cr ())
@@ -1197,11 +1192,11 @@ control regionalDevHndl = \reqType reqRecipient request value index → \timeout
 
 Exceptions:
 
- * 'PipeException' if the control request was not supported by the device
+ * 'USB.PipeException' if the control request was not supported by the device
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- *  Another 'USBException'.
+ *  Another 'USB.USBException'.
 -}
 readControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
             ⇒ RegionalDeviceHandle pr → ControlAction (ReadAction cr)
@@ -1235,11 +1230,11 @@ readControlExact regionalDevHndl = \reqType reqRecipient request value index →
 
 Exceptions:
 
- * 'PipeException' if the control request was not supported by the device
+ * 'USB.PipeException' if the control request was not supported by the device
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- *  Another 'USBException'.
+ *  Another 'USB.USBException'.
 -}
 writeControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr → ControlAction (WriteAction cr)
@@ -1291,7 +1286,7 @@ synchFrame ∷ DeviceHandle → EndpointAddress → Timeout → IO Int
 
 {-| Retrieve a list of supported languages.
 
-This function may throw 'USBException's.
+This function may throw 'USB.USBException's.
 -}
 getLanguages ∷ (pr `ParentOf` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr → cr [USB.LangId]
@@ -1304,7 +1299,7 @@ This is a convenience function which formulates the appropriate control message
 to retrieve the descriptor. The string returned is Unicode, as detailed in the
 USB specifications.
 
-This function may throw 'USBException's.
+This function may throw 'USB.USBException's.
 
 /TODO: The following can be made more type-safe!/
 
@@ -1332,7 +1327,7 @@ This is a convenience function which formulates the appropriate control message
 to retrieve the descriptor. The string returned is Unicode, as detailed in the
 USB specifications.
 
-This function may throw 'USBException's.
+This function may throw 'USB.USBException's.
 -}
 getStrDescFirstLang ∷ (pr `ParentOf` cr, MonadIO cr)
                     ⇒ RegionalDeviceHandle pr
@@ -1356,9 +1351,9 @@ unable to perform I/O.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 kernelDriverActive ∷ (pr `ParentOf` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr Bool
@@ -1371,13 +1366,13 @@ If successful, you will then be able to claim the interface and perform I/O.
 
 Exceptions:
 
- * 'NotFoundException' if no kernel driver was active.
+ * 'USB.NotFoundException' if no kernel driver was active.
 
- * 'InvalidParamException' if the interface does not exist.
+ * 'USB.InvalidParamException' if the interface does not exist.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 detachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr ()
@@ -1389,16 +1384,16 @@ detached using 'detachKernelDriver'.
 
 Exceptions:
 
- * 'NotFoundException' if no kernel driver was active.
+ * 'USB.NotFoundException' if no kernel driver was active.
 
- * 'InvalidParamException' if the interface does not exist.
+ * 'USB.InvalidParamException' if the interface does not exist.
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * 'BusyException' if the driver cannot be attached because the interface
+ * 'USB.BusyException' if the driver cannot be attached because the interface
    is claimed by a program or driver.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 attachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr ()
@@ -1413,9 +1408,9 @@ just executed.
 
 Exceptions:
 
- * 'NoDeviceException' if the device has been disconnected.
+ * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Another 'USBException'.
+ * Another 'USB.USBException'.
 -}
 withDetachedKernelDriver ∷ (pr `ParentOf` cr, MonadCatchIO cr)
                          ⇒ RegionalDeviceHandle pr

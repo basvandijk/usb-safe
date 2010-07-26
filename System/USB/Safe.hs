@@ -1211,7 +1211,7 @@ readControl regionalDevHndl = \reqType reqRecipient request value index → \tim
                              size
 
 -- | A convenience function similar to 'readControl' which checks if the
--- specified number of bytes to read were actually read. Throws an 'IOException'
+-- specified number of bytes to read were actually read. Throws an 'USB.IOException'
 -- if this is not the case.
 readControlExact ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
                  ⇒ RegionalDeviceHandle pr → ControlAction

@@ -1,3 +1,16 @@
+0.8
+
+(Released on: Mon Jul 26 05:49:15 UTC 2010)
+
+* Support usb-0.5 &
+  Depend on the new usb-enumerator package
+
+* Added function: readControlExact
+
+* Remove custom NotFound exception
+  and replaced it with the USB.NotFoundException
+
+
 0.7
 
 (Released on: Wed Jun 16 09:12:24 UTC 2010)

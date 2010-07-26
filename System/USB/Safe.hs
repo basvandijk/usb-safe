@@ -1084,7 +1084,7 @@ transferWith f = \endpoint sbs timeout → liftIO $ wrap f endpoint sbs timeout
 wrap ∷ (USB.DeviceHandle → USB.EndpointAddress → α)
      → (Endpoint transDir transType sAlt pr → α)
 wrap f = \(Endpoint internalDevHndl endpointDesc) →
-           f internalDevHndl (USB.endpointAddress endpointDesc)
+           f internalDevHndl $ USB.endpointAddress endpointDesc
 
 --------------------------------------------------------------------------------
 

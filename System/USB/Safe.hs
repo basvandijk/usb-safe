@@ -184,6 +184,7 @@ import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
 import Data.Word                  ( Word8 )
+import Data.Int                   ( Int )
 import Data.Char                  ( String )
 import Data.Bool                  ( Bool( True, False ) )
 import Data.List                  ( map, head, filter, find )
@@ -1312,7 +1313,9 @@ getStrDesc ∷ (pr `ParentOf` cr, MonadIO cr)
            ⇒ RegionalDeviceHandle pr
            → USB.StrIx
            → USB.LangId
-           → USB.Size
+           → Int -- ^ Maximum number of characters in the requested string. An
+                 --   'USB.IOException' will be thrown when the requested
+                 --   string is larger than this number.
            → cr String
 getStrDesc devHndl strIx langId size =
     liftIO $ USB.getStrDesc (getInternalDevHndl devHndl)
@@ -1332,7 +1335,9 @@ This function may throw 'USB.USBException's.
 getStrDescFirstLang ∷ (pr `ParentOf` cr, MonadIO cr)
                     ⇒ RegionalDeviceHandle pr
                     → USB.StrIx
-                    → USB.Size
+                    → Int -- ^ Maximum number of characters in the requested
+                          --   string. An 'USB.IOException' will be thrown when
+                          --   the requested string is larger than this number.
                     → cr String
 getStrDescFirstLang devHndl descStrIx size =
     liftIO $ USB.getStrDescFirstLang (getInternalDevHndl devHndl)

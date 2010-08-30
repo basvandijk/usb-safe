@@ -206,13 +206,19 @@ import Control.Monad.IO.Class     ( MonadIO, liftIO )
 -- from MonadCatchIO-transformers:
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw, block )
 
--- from iteratee:
-import Data.Iteratee.Base             ( EnumeratorGM )
-import Data.Iteratee.Base.StreamChunk ( ReadableChunk )
-
 -- from regions:
 import Control.Monad.Trans.Region.OnExit ( CloseHandle, onExit )
 import Control.Monad.Trans.Region     -- (re-exported entirely)
+
+-- from iteratee:
+#if MIN_VERSION_iteratee(0,4,0)
+import Data.Iteratee.Iteratee           ( Enumerator )
+import Data.Iteratee.Base.ReadableChunk ( ReadableChunk )
+import Data.NullPoint                   ( NullPoint )
+#else
+import Data.Iteratee.Base               ( EnumeratorGM )
+import Data.Iteratee.Base.StreamChunk   ( ReadableChunk )
+#endif
 
 -- from usb:
 import qualified System.USB.Initialization as USB
@@ -1127,7 +1133,11 @@ instance WriteEndpoint Interrupt where
 class EnumReadEndpoint transType where
     -- | An enumerator for an 'In' endpoint with either a 'Bulk' or 'Interrupt'
     -- transfer type.
-    enumReadEndpoint ∷ (pr `ParentOf` cr, MonadCatchIO cr, ReadableChunk s Word8)
+    enumReadEndpoint ∷ ( pr `ParentOf` cr, MonadCatchIO cr, ReadableChunk s Word8
+#if MIN_VERSION_iteratee(0,4,0)
+                       , NullPoint s
+#endif
+                       )
                      ⇒ Endpoint In transType sAlt pr
                      → USB.Size    -- ^ Chunk size. A good value for this would be
                                    --   the @'maxPacketSize' . 'endpointMaxPacketSize'@.
@@ -1135,8 +1145,11 @@ class EnumReadEndpoint transType where
                                    --   should wait for each chunk before giving up
                                    --   due to no response being received.  For no
                                    --   timeout, use value 0.
+#if MIN_VERSION_iteratee(0,4,0)
+                     → Enumerator s cr α
+#else
                      → EnumeratorGM s Word8 cr α
-
+#endif
 instance EnumReadEndpoint Bulk where
     enumReadEndpoint = wrap USB.enumReadBulk
 

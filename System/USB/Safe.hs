@@ -127,7 +127,6 @@ module System.USB.Safe
       -- * Endpoints
     , Endpoint
     , getEndpoints, getEndpoints'
-    , clearHalt
 
       -- *** Transfer directions
     , TransferDirection(..)
@@ -148,6 +147,8 @@ module System.USB.Safe
     , MkTransferType(..)
 
       -- * Endpoint I/O
+    , clearHalt
+
     , ReadAction
     , WriteAction
 
@@ -996,7 +997,8 @@ getEndpoints (AlternateHandle internalDevHndl ifDesc) transDir transType =
 -- | Similar to 'getEndpoints' but will retrieve the endpoints based on the
 -- inferred type of transfer direction and transfer type.
 --
--- Note that: @getEndpoints' altHndl = 'getEndpoints' altHndl 'mkTransferDirection' 'mkTransferType'@.
+-- Note that:
+-- @getEndpoints' altHndl = 'getEndpoints' altHndl 'mkTransferDirection' 'mkTransferType'@.
 getEndpoints' ∷ ∀ transDir transType sAlt r
               . MkTransferDirection transDir
               ⇒ MkTransferType transType
@@ -1004,30 +1006,9 @@ getEndpoints' ∷ ∀ transDir transType sAlt r
               → [Endpoint transDir transType sAlt r]
 getEndpoints' altHndl = getEndpoints altHndl mkTransferDirection mkTransferType
 
-instance GetDescriptor (Endpoint transDir transType sAlt r)
-                       USB.EndpointDesc where
+instance GetDescriptor (Endpoint transDir transType sAlt r) USB.EndpointDesc where
     getDesc (Endpoint _ endpointDesc) = endpointDesc
 
-{-| Clear the halt/stall condition for an endpoint.
-
-Endpoints with halt status are unable to receive or transmit data until the halt
-condition is stalled.
-
-You should cancel all pending transfers before attempting to clear the halt
-condition.
-
-This is a blocking function.
-
-Exceptions:
-
- * 'USB.NoDeviceException' if the device has been disconnected.
-
- * Another 'USB.USBException'.
--}
-clearHalt ∷ (pr `ParentOf` cr, MonadIO cr)
-          ⇒ Endpoint transDir transType sAlt pr → cr ()
-clearHalt (Endpoint internalDevHndl endpointDesc) =
-    liftIO $ USB.clearHalt internalDevHndl $ USB.endpointAddress endpointDesc
 
 --------------------------------------------------------------------------------
 -- *** Transfer directions
@@ -1079,6 +1060,30 @@ instance MkTransferType Interrupt   where mkTransferType = Interrupt
 -- * Endpoint I/O
 --------------------------------------------------------------------------------
 
+{-| Clear the halt/stall condition for an endpoint.
+
+Endpoints with halt status are unable to receive or transmit data until the halt
+condition is stalled.
+
+You should cancel all pending transfers before attempting to clear the halt
+condition.
+
+This is a blocking function.
+
+Exceptions:
+
+ * 'USB.NoDeviceException' if the device has been disconnected.
+
+ * Another 'USB.USBException'.
+-}
+clearHalt ∷ (pr `ParentOf` cr, MonadIO cr)
+          ⇒ Endpoint transDir transType sAlt pr → cr ()
+clearHalt (Endpoint internalDevHndl endpointDesc) =
+    liftIO $ USB.clearHalt internalDevHndl $ USB.endpointAddress endpointDesc
+
+
+--------------------------------------------------------------------------------
+
 {-| Handy type synonym for read transfers.
 
 A @ReadAction@ is a function which takes a size which defines how many bytes to
@@ -1109,11 +1114,8 @@ class ReadEndpoint transType where
                  ⇒ Endpoint In transType sAlt pr
                  → ReadAction cr
 
-instance ReadEndpoint Bulk where
-    readEndpoint = transferWith USB.readBulk
-
-instance ReadEndpoint Interrupt where
-    readEndpoint = transferWith USB.readInterrupt
+instance ReadEndpoint Bulk      where readEndpoint = transferWith USB.readBulk
+instance ReadEndpoint Interrupt where readEndpoint = transferWith USB.readInterrupt
 
 transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
              ⇒ (USB.DeviceHandle → USB.EndpointAddress → α → USB.Timeout → IO β)
@@ -1153,11 +1155,8 @@ class WriteEndpoint transType where
                   ⇒ Endpoint Out transType sAlt pr
                   → WriteAction cr
 
-instance WriteEndpoint Bulk where
-    writeEndpoint = transferWith USB.writeBulk
-
-instance WriteEndpoint Interrupt where
-    writeEndpoint = transferWith USB.writeInterrupt
+instance WriteEndpoint Bulk      where writeEndpoint = transferWith USB.writeBulk
+instance WriteEndpoint Interrupt where writeEndpoint = transferWith USB.writeInterrupt
 
 
 --------------------------------------------------------------------------------
@@ -1183,11 +1182,8 @@ class EnumReadEndpoint transType where
 #else
                      → EnumeratorGM s Word8 cr α
 #endif
-instance EnumReadEndpoint Bulk where
-    enumReadEndpoint = wrap USB.enumReadBulk
-
-instance EnumReadEndpoint Interrupt where
-    enumReadEndpoint = wrap USB.enumReadInterrupt
+instance EnumReadEndpoint Bulk      where enumReadEndpoint = wrap USB.enumReadBulk
+instance EnumReadEndpoint Interrupt where enumReadEndpoint = wrap USB.enumReadInterrupt
 
 
 --------------------------------------------------------------------------------

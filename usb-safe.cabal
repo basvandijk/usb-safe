@@ -1,5 +1,5 @@
 name:          usb-safe
-version:       0.8.1
+version:       0.9
 cabal-version: >=1.6
 build-type:    Custom
 license:       BSD3
@@ -75,7 +75,7 @@ Library
                , usb-enumerator            >= 0.1   && < 0.2
                , iteratee                  >= 0.3.5 && < 0.5
                , bytestring                >= 0.9   && < 0.10
-               , regions                   >= 0.6   && < 0.7
+               , regions                   >= 0.6   && < 0.8
                , transformers              >= 0.2   && < 0.3
                , MonadCatchIO-transformers >= 0.2   && < 0.3
   exposed-modules: System.USB.Safe

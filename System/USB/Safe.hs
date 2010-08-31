@@ -126,20 +126,26 @@ module System.USB.Safe
 
       -- * Endpoints
     , Endpoint
-    , getEndpoints
+    , getEndpoints, getEndpoints'
     , clearHalt
 
       -- *** Transfer directions
     , TransferDirection(..)
+
     , Out
     , In
 
+    , MkTransferDirection(..)
+
       -- *** Transfer types
     , TransferType(..)
+
     , Control
     , Isochronous
     , Bulk
     , Interrupt
+
+    , MkTransferType(..)
 
       -- * Endpoint I/O
     , ReadAction
@@ -987,6 +993,17 @@ getEndpoints (AlternateHandle internalDevHndl ifDesc) transDir transType =
          transDirUSB  = USB.transferDirection $ USB.endpointAddress endpointDesc
          transTypeUSB = USB.endpointAttribs endpointDesc
 
+-- | Similar to 'getEndpoints' but will retrieve the endpoints based on the
+-- inferred type of transfer direction and transfer type.
+--
+-- Note that: @getEndpoints' altHndl = 'getEndpoints' altHndl 'mkTransferDirection' 'mkTransferType'@.
+getEndpoints' ∷ ∀ transDir transType sAlt r
+              . MkTransferDirection transDir
+              ⇒ MkTransferType transType
+              ⇒ AlternateHandle sAlt r
+              → [Endpoint transDir transType sAlt r]
+getEndpoints' altHndl = getEndpoints altHndl mkTransferDirection mkTransferType
+
 instance GetDescriptor (Endpoint transDir transType sAlt r)
                        USB.EndpointDesc where
     getDesc (Endpoint _ endpointDesc) = endpointDesc
@@ -1026,6 +1043,13 @@ data Out
 -- | In transfer direction (device -> host) used for reading.
 data In
 
+class MkTransferDirection transDir where
+    -- | An overloaded constructor function for transfer directions.
+    mkTransferDirection ∷ TransferDirection transDir
+
+instance MkTransferDirection Out where mkTransferDirection = Out
+instance MkTransferDirection In  where mkTransferDirection = In
+
 --------------------------------------------------------------------------------
 -- *** Transfer types
 --------------------------------------------------------------------------------
@@ -1040,6 +1064,15 @@ data Control
 data Isochronous
 data Bulk
 data Interrupt
+
+class MkTransferType transType where
+    -- | An overloaded constructor function for transfer types.
+    mkTransferType ∷ TransferType transType
+
+instance MkTransferType Control     where mkTransferType = Control
+instance MkTransferType Isochronous where mkTransferType = Isochronous
+instance MkTransferType Bulk        where mkTransferType = Bulk
+instance MkTransferType Interrupt   where mkTransferType = Interrupt
 
 
 --------------------------------------------------------------------------------

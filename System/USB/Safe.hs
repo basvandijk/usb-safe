@@ -73,7 +73,7 @@ module System.USB.Safe
       * Run regions using 'runRegionT'.
 
       * Concurrently run /top-level/ regions inside another region using
-        'forkTopRegion'.
+        'forkIOTopRegion'.
 
        * Duplicate a 'RegionalDeviceHandle' to a parent region using 'dup'.
       -}

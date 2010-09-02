@@ -1,3 +1,28 @@
+0.9
+
+(Released on: Wed Sep 1 20:12:10 UTC 2010)
+
+* Support iteratee-0.4.* and regions-0.7.
+
+* Added the overloaded constructor functions mkTransferDirection and mkTransferType
+
+  class MkTransferDirection transDir where
+      -- | An overloaded constructor function for transfer directions.
+      mkTransferDirection ∷ TransferDirection transDir
+
+  instance MkTransferDirection Out where mkTransferDirection = Out
+  instance MkTransferDirection In  where mkTransferDirection = In
+
+* Added getEndpoints' which uses these overloaded functions.
+
+  getEndpoints' ∷ ∀ transDir transType sAlt r
+                . MkTransferDirection transDir
+                ⇒ MkTransferType transType
+                ⇒ AlternateHandle sAlt r
+                → [Endpoint transDir transType sAlt r]
+  getEndpoints' altHndl = getEndpoints altHndl mkTransferDirection mkTransferType
+
+
 0.8
 
 (Released on: Mon Jul 26 05:49:15 UTC 2010)

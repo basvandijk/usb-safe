@@ -594,7 +594,7 @@ Exceptions:
 
  * 'USB.NoDeviceException' if the device has been disconnected.
 
- * Aanother 'USB.USBException'.
+ * Another 'USB.USBException'.
 -}
 useActiveConfig ∷ ∀ pr cr α
                 . (pr `ParentOf` cr, MonadCatchIO cr)

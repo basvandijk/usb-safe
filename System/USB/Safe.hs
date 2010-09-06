@@ -292,9 +292,9 @@ Note that you can also /duplicate/ a regional device handle by applying 'dup' to
 it.
 -}
 data RegionalDeviceHandle (r ∷ * → *) = RegionalDeviceHandle
-                                          (USB.DeviceHandle)
-                                          (MVar Bool)
-                                          (CloseHandle r)
+                                          !(USB.DeviceHandle)
+                                          !(MVar Bool)
+                                          !(CloseHandle r)
 
 instance Dup RegionalDeviceHandle where
     dup (RegionalDeviceHandle h mv ch) =
@@ -454,8 +454,8 @@ to a parent region using 'dup'.
 Also note that you can get the descriptor of the configuration by applying
 'getDesc' to it.
 -}
-data Config (r ∷ * → *) = Config (RegionalDeviceHandle r)
-                                 USB.ConfigDesc
+data Config (r ∷ * → *) = Config !(RegionalDeviceHandle r)
+                                 !USB.ConfigDesc
 
 {-| Retrieve the supported configurations from the given regional handle.
 
@@ -498,8 +498,8 @@ instance Dup Config where
 The type variable @sCfg@ is used to ensure that you can't return this handle
 from these functions.
 -}
-data ConfigHandle sCfg = ConfigHandle USB.DeviceHandle
-                                      USB.ConfigDesc
+data ConfigHandle sCfg = ConfigHandle !USB.DeviceHandle
+                                      !USB.ConfigDesc
 
 {-| Set the active configuration for a device and then apply the given
 continuation function to the resulting configuration handle.
@@ -660,9 +660,9 @@ setConfigWhich h = useWhich (getConfigs h) setConfig
 
 To retrieve the 'USB.Interface' descriptors of an interface use 'getDesc'.
 -}
-data Interface sCfg = Interface USB.DeviceHandle
-                                USB.InterfaceNumber
-                                USB.Interface
+data Interface sCfg = Interface !USB.DeviceHandle
+                                !USB.InterfaceNumber
+                                !USB.Interface
 
 {-| Retrieve the supported interfaces from the configuration handle.
 
@@ -697,9 +697,9 @@ A regional handle to a claimed interface can be created by applying 'claim' or
 'withInterface' to the interface you wish to claim.
 -}
 data RegionalInterfaceHandle sCfg (r ∷ * → *) = RegionalInterfaceHandle
-                                                  (Interface sCfg)
-                                                  (MVar Bool)
-                                                  (CloseHandle r)
+                                                  !(Interface sCfg)
+                                                  !(MVar Bool)
+                                                  !(CloseHandle r)
 
 instance Dup (RegionalInterfaceHandle sCfg) where
     dup (RegionalInterfaceHandle interface mv ch) =
@@ -780,8 +780,8 @@ withInterfaceWhich h = useWhich (getInterfaces h) withInterface
 
 -- | A supported 'Interface' alternate setting which you can retrieve using
 -- 'getAlternates'.
-data Alternate sCfg (r ∷ * → *) = Alternate (RegionalInterfaceHandle sCfg r)
-                                            USB.InterfaceDesc
+data Alternate sCfg (r ∷ * → *) = Alternate !(RegionalInterfaceHandle sCfg r)
+                                            !USB.InterfaceDesc
 
 {-| Retrieve the supported alternate settings from the given interface handle.
 
@@ -816,8 +816,8 @@ You get a handle to an alternate using 'setAlternate', 'useActiveAlternate' or
 return this handle from these functions.
 -}
 data AlternateHandle sAlt (r ∷ * → *) = AlternateHandle
-                                          USB.DeviceHandle
-                                          USB.InterfaceDesc
+                                          !USB.DeviceHandle
+                                          !USB.InterfaceDesc
 
 {-| Activate an alternate setting for an interface and then apply the given
 continuation function to the resulting alternate handle.
@@ -955,8 +955,8 @@ You can retrieve the endpoints of an alternate using 'getEndpoints'.
 data Endpoint transDir
               transType
               sAlt
-              (r ∷ * → *) = Endpoint USB.DeviceHandle
-                                     USB.EndpointDesc
+              (r ∷ * → *) = Endpoint !USB.DeviceHandle
+                                     !USB.EndpointDesc
 
 eqDir ∷ TransferDirection transDir → USB.TransferDirection → Bool
 Out `eqDir` USB.Out = True

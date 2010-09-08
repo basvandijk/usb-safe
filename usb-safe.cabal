@@ -71,7 +71,7 @@ Library
   GHC-Options: -Wall -fno-warn-orphans
   build-depends: base                      >= 4     && < 4.3
                , base-unicode-symbols      >= 0.1.1 && < 0.3
-               , usb                       >= 0.5   && < 0.6
+               , usb                       >= 0.5   && < 0.7
                , usb-enumerator            >= 0.1   && < 0.2
                , iteratee                  >= 0.3.5 && < 0.5
                , bytestring                >= 0.9   && < 0.10

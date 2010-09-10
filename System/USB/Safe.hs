@@ -506,7 +506,7 @@ continuation function to the resulting configuration handle.
 
 USB devices support multiple configurations of which only one can be active at
 any given time. When a configuration is set using 'setConfig', 'useActiveConfig'
-or 'setConfigWhich' no threads can set a new configuration until the computation
+or 'setConfigWhich' no threads may set a new configuration until the computation
 passed to these functions terminates. If you do try to set one a
 'SettingAlreadySet' exception will be thrown.
 
@@ -554,22 +554,35 @@ setConfig (Config (RegionalDeviceHandle internalDevHndl configAlreadySetMVar _)
 -- before the given computation is performed. When the computation terminates,
 -- wheter normally or by raising an exception, the @MVar@ will be unset again.
 withUnsettedMVar ∷ MonadCatchIO m ⇒ MVar Bool → m α → m α
-withUnsettedMVar settingAlreadySetMVar =
-    bracket_ (liftIO $ do settingAlreadySet ← takeMVar settingAlreadySetMVar
-                          if settingAlreadySet
-                            then do putMVar settingAlreadySetMVar settingAlreadySet
-                                    throwIO SettingAlreadySet
-                            else putMVar settingAlreadySetMVar True)
-             (liftIO $ do _ ← takeMVar settingAlreadySetMVar
-                          putMVar settingAlreadySetMVar False)
+withUnsettedMVar mv = bracket_ (liftIO $ do alreadySet ← takeMVar mv
+                                            if alreadySet
+                                              then do putMVar mv alreadySet
+                                                      throwIO SettingAlreadySet
+                                              else putMVar mv True)
+                               (liftIO $ overwriteMVar mv False)
+
+-- | Internally used function which sets the @MVar@ before the computation is
+-- performed. When the computation terminates, wheter normally or by raising an
+-- exception, the @MVar@ will be unset again.
+withSettedMVar ∷ MonadCatchIO m ⇒ MVar Bool → m α → m α
+withSettedMVar mv = bracket_ (liftIO $ overwriteMVar mv True)
+                             (liftIO $ overwriteMVar mv False)
+
+-- | Internally used function which overwrites the value in the @MVar@.
+--
+-- Note that because this function is used in a context in which asynchronous
+-- exceptions are already masked I don't mask them again. So be carefull
+-- when using this function!
+overwriteMVar ∷ MVar α → α → IO ()
+overwriteMVar mv x = takeMVar mv >> putMVar mv x
 
 {-| This exception can be thrown in:
 
 * 'resetDevice'
 
-* 'setConfig', 'useActiveConfig' or 'setConfigWhich'
+* 'setConfig' or 'setConfigWhich'
 
-* 'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'
+* 'setAlternate' or 'setAlternateWhich'
 
 to indicate that the device was already configured with a setting.
 -}
@@ -587,9 +600,6 @@ information.
 
 Exceptions:
 
- * 'SettingAlreadySet' if a configuration has already been set using
-   'setConfig', 'useActiveConfig' or 'setConfigWhich'.
-
  * 'NoActiveConfig' if the device is not configured.
 
  * 'USB.NoDeviceException' if the device has been disconnected.
@@ -604,12 +614,13 @@ useActiveConfig ∷ ∀ pr cr α
                 → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function
                 → cr α
 useActiveConfig (RegionalDeviceHandle internalDevHndl configAlreadySetMVar _) f =
-    withUnsettedMVar configAlreadySetMVar $ do
+    withSettedMVar configAlreadySetMVar $ do
       activeConfigValue ← liftIO $ USB.getConfig internalDevHndl
       when (activeConfigValue ≡ 0) $ throw NoActiveConfig
-      let activeConfigDesc = fromJust $ find isActive $ getConfigDescs internalDevHndl
+      let activeConfigHandle = ConfigHandle internalDevHndl activeConfigDesc
+          activeConfigDesc = fromJust $ find isActive $ getConfigDescs internalDevHndl
           isActive = (activeConfigValue ≡) ∘ USB.configValue
-      f $ ConfigHandle internalDevHndl activeConfigDesc
+      f activeConfigHandle
 
 {-| This exception can be thrown in 'useActiveConfig' to indicate that the
 device is currently not configured.
@@ -824,12 +835,13 @@ continuation function to the resulting alternate handle.
 
 Simillary to configurations, interfaces support multiple alternate settings of
 which only one can be active at any given time. When an alternate is set using
-'setAlternate', 'useActiveAlternate' or 'setAlternateWhich' no threads can set a
+'setAlternate', 'useActiveAlternate' or 'setAlternateWhich' no threads may set a
 new alternate until the computation passed to these functions terminates. If you
 do try to set one a 'SettingAlreadySet' exception will be thrown.
 
-The operating system may already have set an alternate for the interface. If you
-want to use this current active alternate use 'useActiveAlternate'.
+The operating system has always set an interface in one of the available
+alternates. If you want to use the current active alternate:
+'useActiveAlternate'.
 
 This is a blocking function.
 
@@ -870,12 +882,13 @@ alternate of the give interface handle.
 To determine the current active alternate this function will block while a
 control transfer is submitted to retrieve the information.
 
+Note that unlike configurations an interface is always set in one of the
+available alternates, so unlike 'useActiveConfig' this function will never throw
+an exception like 'NoActiveConfig'.
+
 Exceptions:
 
  * 'USB.NoDeviceException' if the device has been disconnected.
-
- * 'SettingAlreadySet' if an alternate has already been set using
-   'setAlternate', 'useActiveAlternate' or 'setAlternateWhich'.
 
  * Another 'USB.USBException'.
 
@@ -894,7 +907,7 @@ useActiveAlternate (RegionalInterfaceHandle (Interface internalDevHndl
                                             alternateAlreadySetMVar
                                             _
                    ) f =
-    withUnsettedMVar alternateAlreadySetMVar $ do
+    withSettedMVar alternateAlreadySetMVar $ do
       let timeout = 5000 -- ms
       activeAltValue ← liftIO $ USB.getInterfaceAltSetting internalDevHndl
                                                            ifNum

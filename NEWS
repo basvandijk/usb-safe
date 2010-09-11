@@ -1,3 +1,15 @@
+0.10
+
+(Released on: Sat Sep 11 14:20:03 UTC 2010)
+
+* Support usb-0.6.
+
+* Never throw a SettingAlreadySet exception from useActiveConfig or useActiveAlternate
+  These functions don't change the current setting so they're always safe to use.
+
+* Added strictness flags to all arguments of data constructors.
+
+
 0.9
 
 (Released on: Wed Sep 1 20:12:10 UTC 2010)

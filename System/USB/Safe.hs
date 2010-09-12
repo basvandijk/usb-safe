@@ -886,9 +886,10 @@ useActiveAlternate (RegionalInterfaceHandle (Interface internalDevHndl ifNum alt
       activeAltValue ← liftIO $ USB.getInterfaceAltSetting internalDevHndl
                                                            ifNum
                                                            timeout
-      let activeAlt = fromJust $ find isActive alts
-          isActive  = (activeAltValue ≡) ∘ USB.interfaceAltSetting
-      f $ AlternateHandle internalDevHndl activeAlt
+      let activeAltHandle = AlternateHandle internalDevHndl activeAlt
+          activeAlt = fromJust $ find isActive alts
+          isActive = (activeAltValue ≡) ∘ USB.interfaceAltSetting
+      f activeAltHandle
 
 
 {-| Convenience function which finds the first alternate of the given interface

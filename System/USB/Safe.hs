@@ -212,7 +212,7 @@ import Control.Monad.IO.Class     ( MonadIO, liftIO )
 import Control.Monad.CatchIO      ( MonadCatchIO, bracket_, throw, block )
 
 -- from regions:
-import Control.Monad.Trans.Region.OnExit ( CloseHandle, onExit )
+import Control.Monad.Trans.Region.OnExit ( FinalizerHandle, onExit )
 import Control.Monad.Trans.Region     -- (re-exported entirely)
 
 -- from iteratee:
@@ -290,7 +290,7 @@ Note that you can also /duplicate/ a regional device handle by applying 'dup' to
 -}
 data RegionalDeviceHandle (r ∷ * → *) = RegionalDeviceHandle !(USB.DeviceHandle)
                                                              !(MVar Bool)
-                                                             !(CloseHandle r)
+                                                             !(FinalizerHandle r)
 
 instance Dup RegionalDeviceHandle where
     dup (RegionalDeviceHandle h mv ch) = liftM (RegionalDeviceHandle h mv) $ dup ch
@@ -697,7 +697,7 @@ by applying 'claim' or 'withInterface' to the interface you wish to claim.
 data RegionalInterfaceHandle sCfg (r ∷ * → *) = RegionalInterfaceHandle
                                                   !(Interface sCfg)
                                                   !(MVar Bool)
-                                                  !(CloseHandle r)
+                                                  !(FinalizerHandle r)
 
 instance Dup (RegionalInterfaceHandle sCfg) where
     dup (RegionalInterfaceHandle interface mv ch) =

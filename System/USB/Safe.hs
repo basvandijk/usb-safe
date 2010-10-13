@@ -398,7 +398,7 @@ instance GetDescriptor USB.Device USB.DeviceDesc where
 The system will attempt to restore the previous configuration
 and alternate settings after the reset has completed.
 
-Note the constraint: @pr \`ParentOf\` cr@. This allows this function to be
+Note the constraint: @pr \`AncestorRegion\` cr@. This allows this function to be
 executed in any child region @cr@ of the parent region @pr@ in which the given
 regional handle was created.
 
@@ -426,7 +426,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-resetDevice ∷ (pr `ParentOf` cr, MonadIO cr)
+resetDevice ∷ (pr `AncestorRegion` cr, MonadIO cr)
             ⇒ RegionalDeviceHandle pr → cr ()
 resetDevice (RegionalDeviceHandle internalDevHndl mv _) =
     liftIO $ withMVar mv $ \configAlreadySet → if configAlreadySet
@@ -527,7 +527,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfig ∷ ∀ pr cr α
-          . (pr `ParentOf` cr, MonadCatchIO cr)
+          . (pr `AncestorRegion` cr, MonadCatchIO cr)
           ⇒ Config pr                          -- ^ The configuration you wish to set.
           → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
           → cr α
@@ -594,7 +594,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveConfig ∷ ∀ pr cr α
-                . (pr `ParentOf` cr, MonadCatchIO cr)
+                . (pr `AncestorRegion` cr, MonadCatchIO cr)
                 ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device
                                           --   from which you want to use the
                                           --   active configuration.
@@ -638,7 +638,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfigWhich ∷ ∀ pr cr α
-               . (pr `ParentOf` cr, MonadCatchIO cr)
+               . (pr `AncestorRegion` cr, MonadCatchIO cr)
                ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device for
                                          --   which you want to set a
                                          --   configuration.
@@ -841,7 +841,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternate ∷ ∀ pr cr sCfg α
-             . (pr `ParentOf` cr, MonadCatchIO cr)
+             . (pr `AncestorRegion` cr, MonadCatchIO cr)
              ⇒ Alternate sCfg pr -- ^ The alternate you wish to set.
              → (∀ sAlt. AlternateHandle sAlt pr → cr α) -- ^ Continuation function.
              → cr α
@@ -872,7 +872,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveAlternate ∷ ∀ pr cr sCfg α
-                   . (pr `ParentOf` cr, MonadCatchIO cr)
+                   . (pr `AncestorRegion` cr, MonadCatchIO cr)
                    ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                               --   interface from which you want
                                               --   to use the active alternate.
@@ -911,7 +911,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternateWhich ∷ ∀ pr cr sCfg α
-                  . (pr `ParentOf` cr, MonadCatchIO cr)
+                  . (pr `AncestorRegion` cr, MonadCatchIO cr)
                   ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                                     --   interface for which you want
                                                     --   to set an alternate.
@@ -1057,7 +1057,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-clearHalt ∷ (pr `ParentOf` cr, MonadIO cr)
+clearHalt ∷ (pr `AncestorRegion` cr, MonadIO cr)
           ⇒ Endpoint transDir transType sAlt pr → cr ()
 clearHalt (Endpoint internalDevHndl endpointDesc) =
     liftIO $ USB.clearHalt internalDevHndl $ USB.endpointAddress endpointDesc
@@ -1091,14 +1091,14 @@ class ReadEndpoint transType where
 
         * Another 'USB.USBException'.
     -}
-    readEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
+    readEndpoint ∷ (pr `AncestorRegion` cr, MonadIO cr)
                  ⇒ Endpoint In transType sAlt pr
                  → ReadAction cr
 
 instance ReadEndpoint Bulk      where readEndpoint = transferWith USB.readBulk
 instance ReadEndpoint Interrupt where readEndpoint = transferWith USB.readInterrupt
 
-transferWith ∷ (pr `ParentOf` cr, MonadIO cr)
+transferWith ∷ (pr `AncestorRegion` cr, MonadIO cr)
              ⇒ (USB.DeviceHandle → USB.EndpointAddress → α → USB.Timeout → IO β)
              → (Endpoint transDir transType sAlt pr    → α → USB.Timeout → cr β)
 transferWith f = \endpoint sbs timeout → liftIO $ wrap f endpoint sbs timeout
@@ -1132,7 +1132,7 @@ class WriteEndpoint transType where
 
         * Another 'USB.USBException'.
     -}
-    writeEndpoint ∷ (pr `ParentOf` cr, MonadIO cr)
+    writeEndpoint ∷ (pr `AncestorRegion` cr, MonadIO cr)
                   ⇒ Endpoint Out transType sAlt pr
                   → WriteAction cr
 
@@ -1146,7 +1146,7 @@ instance WriteEndpoint Interrupt where writeEndpoint = transferWith USB.writeInt
 class EnumReadEndpoint transType where
     -- | An enumerator for an 'In' endpoint
     -- with either a 'Bulk' or 'Interrupt' transfer type.
-    enumReadEndpoint ∷ ( pr `ParentOf` cr, MonadCatchIO cr, ReadableChunk s Word8
+    enumReadEndpoint ∷ ( pr `AncestorRegion` cr, MonadCatchIO cr, ReadableChunk s Word8
 #if MIN_VERSION_iteratee(0,4,0)
                        , NullPoint s
 #endif
@@ -1201,7 +1201,7 @@ Exceptions:
 
  *  Another 'USB.USBException'.
 -}
-control ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+control ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
         ⇒ RegionalDeviceHandle pr → ControlAction (USB.Timeout → cr ())
 control regionalDevHndl = \reqType reqRecipient request value index → \timeout →
     liftIO $ USB.control (getInternalDevHndl regionalDevHndl)
@@ -1222,7 +1222,7 @@ Exceptions:
 
  *  Another 'USB.USBException'.
 -}
-readControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+readControl ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
             ⇒ RegionalDeviceHandle pr → ControlAction (ReadAction cr)
 readControl regionalDevHndl = \reqType reqRecipient request value index → \timeout size →
     liftIO $ USB.readControl (getInternalDevHndl regionalDevHndl)
@@ -1237,7 +1237,7 @@ readControl regionalDevHndl = \reqType reqRecipient request value index → \tim
 -- | A convenience function similar to 'readControl' which checks if the
 -- specified number of bytes to read were actually read.
 -- Throws an 'USB.IOException' if this is not the case.
-readControlExact ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+readControlExact ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
                  ⇒ RegionalDeviceHandle pr → ControlAction
                      (USB.Size → USB.Timeout → cr ByteString)
 readControlExact regionalDevHndl = \reqType reqRecipient request value index → \timeout size →
@@ -1260,7 +1260,7 @@ Exceptions:
 
  *  Another 'USB.USBException'.
 -}
-writeControl ∷ ∀ pr cr. (pr `ParentOf` cr, MonadIO cr)
+writeControl ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr → ControlAction (WriteAction cr)
 writeControl regionalDevHndl = \reqType reqRecipient request value index → \timeout input →
     liftIO $ USB.writeControl (getInternalDevHndl regionalDevHndl)
@@ -1312,7 +1312,7 @@ synchFrame ∷ DeviceHandle → EndpointAddress → Timeout → IO Int
 
 This function may throw 'USB.USBException's.
 -}
-getLanguages ∷ (pr `ParentOf` cr, MonadIO cr)
+getLanguages ∷ (pr `AncestorRegion` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr → cr [USB.LangId]
 getLanguages devHndl =
     liftIO $ USB.getLanguages (getInternalDevHndl devHndl)
@@ -1332,7 +1332,7 @@ given @StrIx@ and @LangId@ actually belong to the given @Handle@. In other
 words I would like to get a type error when they are some arbitrary number or
 come from another device.
 -}
-getStrDesc ∷ (pr `ParentOf` cr, MonadIO cr)
+getStrDesc ∷ (pr `AncestorRegion` cr, MonadIO cr)
            ⇒ RegionalDeviceHandle pr
            → USB.StrIx
            → USB.LangId
@@ -1352,7 +1352,7 @@ USB specifications.
 
 This function may throw 'USB.USBException's.
 -}
-getStrDescFirstLang ∷ (pr `ParentOf` cr, MonadIO cr)
+getStrDescFirstLang ∷ (pr `AncestorRegion` cr, MonadIO cr)
                     ⇒ RegionalDeviceHandle pr
                     → USB.StrIx
                     → Int -- ^ Maximum number of characters in the requested
@@ -1378,7 +1378,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-kernelDriverActive ∷ (pr `ParentOf` cr, MonadIO cr)
+kernelDriverActive ∷ (pr `AncestorRegion` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr Bool
 kernelDriverActive regionalDevHndl =
     liftIO ∘ USB.kernelDriverActive (getInternalDevHndl regionalDevHndl)
@@ -1397,7 +1397,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-detachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
+detachKernelDriver ∷ (pr `AncestorRegion` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr ()
 detachKernelDriver regionalDevHndl =
     liftIO ∘ USB.detachKernelDriver (getInternalDevHndl regionalDevHndl)
@@ -1418,7 +1418,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-attachKernelDriver ∷ (pr `ParentOf` cr, MonadIO cr)
+attachKernelDriver ∷ (pr `AncestorRegion` cr, MonadIO cr)
                    ⇒ RegionalDeviceHandle pr → USB.InterfaceNumber → cr ()
 attachKernelDriver regionalDevHndl =
     liftIO ∘ USB.attachKernelDriver (getInternalDevHndl regionalDevHndl)
@@ -1435,7 +1435,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-withDetachedKernelDriver ∷ (pr `ParentOf` cr, MonadCatchIO cr)
+withDetachedKernelDriver ∷ (pr `AncestorRegion` cr, MonadCatchIO cr)
                          ⇒ RegionalDeviceHandle pr
                          → USB.InterfaceNumber
                          → cr α

@@ -182,9 +182,8 @@ module System.USB.Safe
 --------------------------------------------------------------------------------
 
 -- from base:
-import Prelude                    ( fromInteger )
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
-import Control.Monad              ( Monad, return, (>>=), fail, (>>), when, liftM )
+import Control.Monad              ( Monad, return, (>>=), (>>), when, liftM )
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
@@ -196,6 +195,11 @@ import Data.List                  ( map, head, filter, find )
 import Data.Maybe                 ( Maybe(Nothing, Just), fromJust )
 import System.IO                  ( IO )
 import Text.Show                  ( Show )
+
+#if __GLASGOW_HASKELL__ < 701
+import Prelude                    ( fromInteger )
+import Control.Monad              ( fail )
+#endif
 
 -- from base-unicode-symbols:
 import Data.Bool.Unicode          ( (∧) )

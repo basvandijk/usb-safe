@@ -356,8 +356,19 @@ withDeviceWhich ∷ ∀ pr α
                 → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
                                           -- ^ Continuation function
                 → pr α
-withDeviceWhich ctx p f = do devs ← liftIO $ USB.getDevices ctx
-                             useWhich devs withDevice p f
+withDeviceWhich ctx p f = do
+  devs ← liftIO $ USB.getDevices ctx
+#if __GLASGOW_HASKELL__ < 700
+  useWhich devs withDevice p f
+#else
+    -- GHC-7 simplified the treatment of impredicativity
+    -- which unfortunately causes the above to break.
+    -- See: http://thread.gmane.org/gmane.comp.lang.haskell.glasgow.user/19134/focus=19153
+    -- A solution is to just inline the code of useWhich: (I know this is ugly!)
+  case find (p ∘ getDesc) devs of
+    Nothing  → P.throwIO USB.NotFoundException
+    Just dev → withDevice dev f
+#endif
 
 -- | Internally used function which searches through the given list of USB
 -- entities (like Devices, Configs, Interfaces or Alternates) for the first

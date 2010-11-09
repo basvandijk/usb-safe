@@ -68,14 +68,8 @@ module System.USB.Safe
 
       {-|
       Note that this module re-exports the @Control.Monad.Trans.Region@ module
-      from the @regions@ package which allows you to:
-
-      * Run regions using 'runRegionT'.
-
-      * Concurrently run /top-level/ regions inside another region using
-        'forkIOTopRegion'.
-
-       * Duplicate a 'RegionalDeviceHandle' to a parent region using 'dup'.
+      from the @regions@ package which allows you to run regions using 'runRegionT'
+      and duplicate a 'RegionalDeviceHandle' to a parent region using 'dup'.
       -}
       module Control.Monad.Trans.Region
 

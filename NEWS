@@ -1,3 +1,20 @@
+0.11
+
+(Released on: Sat Nov 6 15:57:49 UTC 2010)
+
+* Released during BelHac 2010!
+
+* Depend on regions-0.8.
+
+* Rename ParentOf to AncestorRegion.
+
+* Use MonadPeelIO instead of MonadCatchIO.
+
+* Support iteratee-0.5.
+
+* Support GHC-7.
+
+
 0.10
 
 (Released on: Sat Sep 11 14:20:03 UTC 2010)

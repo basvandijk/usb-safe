@@ -1,5 +1,5 @@
 name:          usb-safe
-version:       0.11.0.1
+version:       0.11.0.2
 cabal-version: >=1.6
 build-type:    Custom
 license:       BSD3
@@ -71,9 +71,9 @@ Library
   GHC-Options: -Wall -fno-warn-orphans
   build-depends: base                      >= 4     && < 4.4
                , base-unicode-symbols      >= 0.1.1 && < 0.3
-               , usb                       >= 0.5   && < 0.7
+               , usb                       >= 0.5   && < 0.8
                , usb-enumerator            >= 0.2   && < 0.3
-               , iteratee                  >= 0.3.5 && < 0.7
+               , iteratee                  >= 0.3.5 && < 0.8
                , bytestring                >= 0.9   && < 0.10
                , regions                   >= 0.8   && < 0.9
                , transformers              >= 0.2   && < 0.3

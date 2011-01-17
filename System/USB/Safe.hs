@@ -177,7 +177,7 @@ module System.USB.Safe
 
 -- from base:
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
-import Control.Monad              ( Monad, return, (>>=), (>>), when, liftM )
+import Control.Monad              ( Monad, return, (>>=), (>>), liftM )
 import Control.Exception          ( Exception, throwIO )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
@@ -544,7 +544,7 @@ setConfig ∷ ∀ pr cr α
           → cr α
 setConfig (Config (RegionalDeviceHandle internalDevHndl mv _) configDesc) f =
     withUnsettedMVar mv $ do
-      liftIO $ USB.setConfig internalDevHndl $ USB.configValue configDesc
+      liftIO $ USB.setConfig internalDevHndl $ Just $ USB.configValue configDesc
       f $ ConfigHandle internalDevHndl configDesc
 
 -- | Internally used function which throws a 'SettingAlreadySet' exception if
@@ -613,12 +613,14 @@ useActiveConfig ∷ ∀ pr cr α
                 → cr α
 useActiveConfig (RegionalDeviceHandle internalDevHndl mv _) f =
     withSettedMVar mv $ do
-      activeConfigValue ← liftIO $ USB.getConfig internalDevHndl
-      when (activeConfigValue ≡ 0) $ P.throwIO NoActiveConfig
-      let activeConfigHandle = ConfigHandle internalDevHndl activeConfigDesc
-          activeConfigDesc = fromJust $ find isActive $ getConfigDescs internalDevHndl
-          isActive = (activeConfigValue ≡) ∘ USB.configValue
-      f activeConfigHandle
+      mbActiveConfigValue ← liftIO $ USB.getConfig internalDevHndl
+      case mbActiveConfigValue of
+        Nothing → P.throwIO NoActiveConfig
+        Just activeConfigValue →
+          let activeConfigHandle = ConfigHandle internalDevHndl activeConfigDesc
+              activeConfigDesc = fromJust $ find isActive $ getConfigDescs internalDevHndl
+              isActive = (activeConfigValue ≡) ∘ USB.configValue
+          in f activeConfigHandle
 
 {-| This exception can be thrown in 'useActiveConfig' to indicate that the
 device is currently not configured.

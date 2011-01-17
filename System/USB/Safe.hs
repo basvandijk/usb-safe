@@ -190,7 +190,7 @@ import Data.Maybe                 ( Maybe(Nothing, Just), fromJust )
 import System.IO                  ( IO )
 import Text.Show                  ( Show )
 
-#if __GLASGOW_HASKELL__ < 701
+#if __GLASGOW_HASKELL__ < 700
 import Prelude                    ( fromInteger )
 import Control.Monad              ( fail )
 #endif

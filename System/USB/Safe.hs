@@ -178,7 +178,7 @@ module System.USB.Safe
 -- from base:
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
 import Control.Monad              ( Monad, return, (>>=), (>>), liftM )
-import Control.Exception          ( Exception, throwIO )
+import Control.Exception          ( Exception )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
 import Data.Word                  ( Word8 )
@@ -206,10 +206,9 @@ import Data.ByteString            ( ByteString )
 -- from transformers:
 import Control.Monad.IO.Class     ( MonadIO, liftIO )
 
--- from monad-peel:
-import Control.Monad.IO.Peel      ( MonadPeelIO )
-import Control.Exception.Peel     ( bracket_, block )
-import qualified Control.Exception.Peel as P ( throwIO )
+-- from monad-control:
+import Control.Monad.IO.Control   ( MonadControlIO )
+import Control.Exception.Control  ( bracket_, throwIO )
 
 -- from regions:
 import Control.Monad.Trans.Region.OnExit ( FinalizerHandle, onExit )
@@ -276,6 +275,14 @@ import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
 import qualified System.USB.IO.Synchronous.Enumerator as USB
     ( enumReadBulk, enumReadInterrupt )
 
+#if MIN_VERSION_base(4,3,0)
+import Control.Exception.Control  ( mask_ )
+#else
+import Control.Exception.Control  ( block )
+mask_ ∷ MonadControlIO m ⇒ m α → m α
+mask_ = block
+#endif
+
 
 --------------------------------------------------------------------------------
 -- ** Regional device handles
@@ -310,9 +317,9 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-openDevice ∷ MonadPeelIO pr
+openDevice ∷ MonadControlIO pr
            ⇒ USB.Device → RegionT s pr (RegionalDeviceHandle (RegionT s pr))
-openDevice dev = block $ do
+openDevice dev = mask_ $ do
                    h  ← liftIO $ USB.openDevice dev
                    mv ← liftIO $ newMVar False
                    ch ← onExit $ USB.closeDevice h
@@ -321,7 +328,7 @@ openDevice dev = block $ do
 {-| Convenience function which opens the device, applies the given continuation
 function to the resulting regional device handle and runs the resulting region.
 -}
-withDevice ∷ MonadPeelIO pr
+withDevice ∷ MonadControlIO pr
            ⇒ USB.Device
            → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
            → pr α
@@ -344,7 +351,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 withDeviceWhich ∷ ∀ pr α
-                . MonadPeelIO pr
+                . MonadControlIO pr
                 ⇒ USB.Ctx
                 → (USB.DeviceDesc → Bool) -- ^ Predicate on the device descriptor.
                 → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
@@ -360,7 +367,7 @@ withDeviceWhich ctx p f = do
     -- See: http://thread.gmane.org/gmane.comp.lang.haskell.glasgow.user/19134/focus=19153
     -- A solution is to just inline the code of useWhich: (I know this is ugly!)
   case find (p ∘ getDesc) devs of
-    Nothing  → P.throwIO USB.NotFoundException
+    Nothing  → throwIO USB.NotFoundException
     Just dev → withDevice dev f
 #endif
 
@@ -376,7 +383,7 @@ useWhich ∷ ∀ k desc e (m ∷ * → *) α
          → k             -- ^ Continuation function
          → m α
 useWhich ds w p f = case find (p ∘ getDesc) ds of
-                      Nothing → P.throwIO USB.NotFoundException
+                      Nothing → throwIO USB.NotFoundException
                       Just d  → w d f
 
 -- | Internally used function for getting the actual USB device handle from a
@@ -538,7 +545,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfig ∷ ∀ pr cr α
-          . (pr `AncestorRegion` cr, MonadPeelIO cr)
+          . (pr `AncestorRegion` cr, MonadControlIO cr)
           ⇒ Config pr                          -- ^ The configuration you wish to set.
           → (∀ sCfg. ConfigHandle sCfg → cr α) -- ^ Continuation function.
           → cr α
@@ -551,7 +558,7 @@ setConfig (Config (RegionalDeviceHandle internalDevHndl mv _) configDesc) f =
 -- the given @MVar@ was set. If the given @MVar@ wasn't set it will be set
 -- before the given computation is performed. When the computation terminates,
 -- wheter normally or by raising an exception, the @MVar@ will be unset again.
-withUnsettedMVar ∷ MonadPeelIO m ⇒ MVar Bool → m α → m α
+withUnsettedMVar ∷ MonadControlIO m ⇒ MVar Bool → m α → m α
 withUnsettedMVar mv = bracket_ (liftIO $ do alreadySet ← takeMVar mv
                                             if alreadySet
                                               then do putMVar mv alreadySet
@@ -562,7 +569,7 @@ withUnsettedMVar mv = bracket_ (liftIO $ do alreadySet ← takeMVar mv
 -- | Internally used function which sets the @MVar@ before the computation is
 -- performed. When the computation terminates, wheter normally or by raising an
 -- exception, the @MVar@ will be unset again.
-withSettedMVar ∷ MonadPeelIO m ⇒ MVar Bool → m α → m α
+withSettedMVar ∷ MonadControlIO m ⇒ MVar Bool → m α → m α
 withSettedMVar mv = bracket_ (liftIO $ overwriteMVar mv True)
                              (liftIO $ overwriteMVar mv False)
 
@@ -605,7 +612,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveConfig ∷ ∀ pr cr α
-                . (pr `AncestorRegion` cr, MonadPeelIO cr)
+                . (pr `AncestorRegion` cr, MonadControlIO cr)
                 ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device
                                           --   from which you want to use the
                                           --   active configuration.
@@ -615,7 +622,7 @@ useActiveConfig (RegionalDeviceHandle internalDevHndl mv _) f =
     withSettedMVar mv $ do
       mbActiveConfigValue ← liftIO $ USB.getConfig internalDevHndl
       case mbActiveConfigValue of
-        Nothing → P.throwIO NoActiveConfig
+        Nothing → throwIO NoActiveConfig
         Just activeConfigValue →
           let activeConfigHandle = ConfigHandle internalDevHndl activeConfigDesc
               activeConfigDesc = fromJust $ find isActive $ getConfigDescs internalDevHndl
@@ -651,7 +658,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfigWhich ∷ ∀ pr cr α
-               . (pr `AncestorRegion` cr, MonadPeelIO cr)
+               . (pr `AncestorRegion` cr, MonadControlIO cr)
                ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device for
                                          --   which you want to set a
                                          --   configuration.
@@ -737,19 +744,19 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 claim ∷ ∀ pr sCfg s
-      . MonadPeelIO pr
+      . MonadControlIO pr
       ⇒ Interface sCfg  -- ^ Interface you wish to claim
       → RegionT s pr
           (RegionalInterfaceHandle sCfg
             (RegionT s pr))
-claim interface@(Interface internalDevHndl ifNum _) = block $ do
+claim interface@(Interface internalDevHndl ifNum _) = mask_ $ do
   mv ← liftIO $ newMVar False
   liftIO $ USB.claimInterface internalDevHndl ifNum
   ch ← onExit $ USB.releaseInterface internalDevHndl ifNum
   return $ RegionalInterfaceHandle interface mv ch
 
 withInterface ∷ ∀ pr sCfg α
-              . MonadPeelIO pr
+              . MonadControlIO pr
               ⇒ Interface sCfg -- ^ The interface you wish to claim.
               → (∀ s. RegionalInterfaceHandle sCfg (RegionT s pr)
                     → RegionT s pr α
@@ -774,7 +781,7 @@ Exceptions:
 
 -}
 withInterfaceWhich ∷ ∀ pr sCfg α
-                   . MonadPeelIO pr
+                   . MonadControlIO pr
                    ⇒ ConfigHandle sCfg      -- ^ Handle to a configuration of which
                                             --   you want to claim an interface.
                    → (USB.Interface → Bool) -- ^ Predicate on the interface descriptors.
@@ -854,7 +861,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternate ∷ ∀ pr cr sCfg α
-             . (pr `AncestorRegion` cr, MonadPeelIO cr)
+             . (pr `AncestorRegion` cr, MonadControlIO cr)
              ⇒ Alternate sCfg pr -- ^ The alternate you wish to set.
              → (∀ sAlt. AlternateHandle sAlt pr → cr α) -- ^ Continuation function.
              → cr α
@@ -885,7 +892,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveAlternate ∷ ∀ pr cr sCfg α
-                   . (pr `AncestorRegion` cr, MonadPeelIO cr)
+                   . (pr `AncestorRegion` cr, MonadControlIO cr)
                    ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                               --   interface from which you want
                                               --   to use the active alternate.
@@ -924,7 +931,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternateWhich ∷ ∀ pr cr sCfg α
-                  . (pr `AncestorRegion` cr, MonadPeelIO cr)
+                  . (pr `AncestorRegion` cr, MonadControlIO cr)
                   ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                                     --   interface for which you want
                                                     --   to set an alternate.
@@ -1159,7 +1166,7 @@ instance WriteEndpoint Interrupt where writeEndpoint = transferWith USB.writeInt
 class EnumReadEndpoint transType where
     -- | An enumerator for an 'In' endpoint
     -- with either a 'Bulk' or 'Interrupt' transfer type.
-    enumReadEndpoint ∷ ( pr `AncestorRegion` cr, MonadPeelIO cr, ReadableChunk s Word8
+    enumReadEndpoint ∷ ( pr `AncestorRegion` cr, MonadControlIO cr, ReadableChunk s Word8
 #if MIN_VERSION_iteratee(0,4,0)
                        , NullPoint s
 #endif
@@ -1448,7 +1455,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-withDetachedKernelDriver ∷ (pr `AncestorRegion` cr, MonadPeelIO cr)
+withDetachedKernelDriver ∷ (pr `AncestorRegion` cr, MonadControlIO cr)
                          ⇒ RegionalDeviceHandle pr
                          → USB.InterfaceNumber
                          → cr α

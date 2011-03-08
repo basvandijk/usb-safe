@@ -146,10 +146,10 @@ module System.USB.Safe
     , ReadAction
     , WriteAction
 
-    , readEndpoint
-    , writeEndpoint
+    , ReadEndpoint(readEndpoint)
+    , WriteEndpoint(writeEndpoint)
 
-    , enumReadEndpoint
+    , EnumReadEndpoint(enumReadEndpoint)
 
       -- ** Control transfers
     , ControlAction

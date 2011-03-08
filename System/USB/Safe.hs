@@ -178,7 +178,7 @@ module System.USB.Safe
 -- from base:
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
 import Control.Monad              ( Monad, return, (>>=), (>>), liftM )
-import Control.Exception          ( Exception )
+import Control.Exception          ( Exception, bracket_ )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
 import Data.Word                  ( Word8 )
@@ -207,8 +207,8 @@ import Data.ByteString            ( ByteString )
 import Control.Monad.IO.Class     ( MonadIO, liftIO )
 
 -- from monad-control:
-import Control.Monad.IO.Control   ( MonadControlIO )
-import Control.Exception.Control  ( bracket_, throwIO )
+import Control.Monad.IO.Control   ( MonadControlIO, liftIOOp_ )
+import Control.Exception.Control  ( throwIO )
 
 -- from regions:
 import Control.Monad.Trans.Region.OnExit ( FinalizerHandle, onExit )
@@ -237,7 +237,9 @@ import qualified System.USB.DeviceHandling as USB
     , InterfaceNumber, claimInterface, releaseInterface
     , setInterfaceAltSetting
     , clearHalt, resetDevice
-    , kernelDriverActive, detachKernelDriver, attachKernelDriver
+    , kernelDriverActive
+    , detachKernelDriver, attachKernelDriver
+    , withDetachedKernelDriver
     )
 
 import qualified System.USB.Descriptors as USB
@@ -559,19 +561,20 @@ setConfig (Config (RegionalDeviceHandle internalDevHndl mv _) configDesc) f =
 -- before the given computation is performed. When the computation terminates,
 -- wheter normally or by raising an exception, the @MVar@ will be unset again.
 withUnsettedMVar ∷ MonadControlIO m ⇒ MVar Bool → m α → m α
-withUnsettedMVar mv = bracket_ (liftIO $ do alreadySet ← takeMVar mv
-                                            if alreadySet
-                                              then do putMVar mv alreadySet
-                                                      throwIO SettingAlreadySet
-                                              else putMVar mv True)
-                               (liftIO $ overwriteMVar mv False)
+withUnsettedMVar mv = liftIOOp_ $ bracket_
+                        (do alreadySet ← takeMVar mv
+                            if alreadySet
+                              then do putMVar mv alreadySet
+                                      throwIO SettingAlreadySet
+                              else putMVar mv True)
+                        (overwriteMVar mv False)
 
 -- | Internally used function which sets the @MVar@ before the computation is
 -- performed. When the computation terminates, wheter normally or by raising an
 -- exception, the @MVar@ will be unset again.
 withSettedMVar ∷ MonadControlIO m ⇒ MVar Bool → m α → m α
-withSettedMVar mv = bracket_ (liftIO $ overwriteMVar mv True)
-                             (liftIO $ overwriteMVar mv False)
+withSettedMVar mv = liftIOOp_ $ bracket_ (overwriteMVar mv True)
+                                         (overwriteMVar mv False)
 
 -- | Internally used function which overwrites the value in the @MVar@.
 --
@@ -1460,24 +1463,10 @@ withDetachedKernelDriver ∷ (pr `AncestorRegion` cr, MonadControlIO cr)
                          → USB.InterfaceNumber
                          → cr α
                          → cr α
-withDetachedKernelDriver regionalDevHndl ifNum action =
-    ifM (kernelDriverActive regionalDevHndl ifNum)
-        (bracket_ (detachKernelDriver regionalDevHndl ifNum)
-                  (attachKernelDriver regionalDevHndl ifNum)
-                  action)
-        action
-
-
---------------------------------------------------------------------------------
--- * Utils
---------------------------------------------------------------------------------
-
--- | Monadic @if ... then ... else ...@
-ifM ∷ Monad m ⇒ m Bool → m α → m α → m α
-ifM cM tM eM = do c ← cM
-                  if c
-                    then tM
-                    else eM
+withDetachedKernelDriver regionalDevHndl ifNum =
+    liftIOOp_ $ USB.withDetachedKernelDriver
+                  (getInternalDevHndl regionalDevHndl)
+                  ifNum
 
 
 -- The End ---------------------------------------------------------------------

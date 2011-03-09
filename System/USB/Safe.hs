@@ -183,7 +183,6 @@ import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
 import Data.Word                  ( Word8 )
 import Data.Int                   ( Int )
-import Data.Char                  ( String )
 import Data.Bool                  ( Bool(True, False) )
 import Data.List                  ( map, head, filter, find )
 import Data.Maybe                 ( Maybe(Nothing, Just), fromJust )
@@ -202,6 +201,9 @@ import Data.Function.Unicode      ( (∘) )
 
 -- from bytestring:
 import Data.ByteString            ( ByteString )
+
+-- from text:
+import Data.Text                  ( Text )
 
 -- from transformers:
 import Control.Monad.IO.Class     ( MonadIO, liftIO )
@@ -1342,10 +1344,6 @@ getLanguages devHndl =
 
 {-| Retrieve a string descriptor from a device.
 
-This is a convenience function which formulates the appropriate control message
-to retrieve the descriptor. The string returned is Unicode, as detailed in the
-USB specifications.
-
 This function may throw 'USB.USBException's.
 
 /TODO: The following can be made more type-safe!/
@@ -1362,16 +1360,11 @@ getStrDesc ∷ (pr `AncestorRegion` cr, MonadIO cr)
            → Int -- ^ Maximum number of characters in the requested string. An
                  --   'USB.IOException' will be thrown when the requested
                  --   string is larger than this number.
-           → cr String
+           → cr Text
 getStrDesc devHndl strIx langId size =
     liftIO $ USB.getStrDesc (getInternalDevHndl devHndl) strIx langId size
 
-{-| Retrieve a string descriptor from a device
-using the first supported language.
-
-This is a convenience function which formulates the appropriate control message
-to retrieve the descriptor. The string returned is Unicode, as detailed in the
-USB specifications.
+{-| Retrieve a string descriptor from a device using the first supported language.
 
 This function may throw 'USB.USBException's.
 -}
@@ -1381,7 +1374,7 @@ getStrDescFirstLang ∷ (pr `AncestorRegion` cr, MonadIO cr)
                     → Int -- ^ Maximum number of characters in the requested
                           --   string. An 'USB.IOException' will be thrown when
                           --   the requested string is larger than this number.
-                    → cr String
+                    → cr Text
 getStrDescFirstLang devHndl descStrIx size =
     liftIO $ USB.getStrDescFirstLang (getInternalDevHndl devHndl) descStrIx size
 

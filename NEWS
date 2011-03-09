@@ -1,3 +1,17 @@
+0.12
+
+(Released on: Wed Mar 9 12:22:15 UTC 2011)
+
+* Exported the ReadEndpoint, WriteEndpoint and EnumReadEndpoint type classes
+  This way you can refer to them in type signatures.
+* Support usb-0.8:
+  getStrDesc and getStrDescFirstLang now return a Text instead of a String.
+* Switched from monad-peel to monad-control.
+* Support regions-0.9.
+* Support usb-enumerator-0.3.
+* Support iteratee-0.8.*.
+
+
 0.11.0.2
 
 (Released on: Mon Jan 17 22:04:53 UTC 2011)

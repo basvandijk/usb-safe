@@ -42,12 +42,14 @@ which was [invented][1] by Oleg Kiselyov and Chung-chieh Shan.
 This technique is implemented in the [regions] package which is re-exported from
 `usb-safe`.
 
-See the `usb-safe-examples` package for examples how to use this library:
+See the [usb-safe-examples] package for examples how to use this library:
 
-    darcs get http://code.haskell.org/~basvandijk/code/usb-safe-examples
+    git clone git://github.com/basvandijk/usb-safe-examples.git
 
 [1]: http://okmij.org/ftp/Haskell/regions.html#light-weight
 
 [bindings-libusb]: http://hackage.haskell.org/package/bindings-libusb
 [usb]:             http://hackage.haskell.org/package/usb
 [regions]:         http://hackage.haskell.org/package/regions
+
+[usb-safe-examples]: https://github.com/basvandijk/usb-safe-examples

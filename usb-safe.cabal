@@ -61,7 +61,7 @@ description:
   .
   See the @usb-safe-examples@ package for examples how to use this library:
   .
-  @darcs get@ <http://code.haskell.org/~basvandijk/code/usb-safe-examples>
+  @git clone git://github.com/basvandijk/usb-safe-examples.git@
 
 source-repository head
   Type:     git

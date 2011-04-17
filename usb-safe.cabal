@@ -1,5 +1,5 @@
 name:          usb-safe
-version:       0.12
+version:       0.12.0.1
 cabal-version: >=1.6
 build-type:    Custom
 license:       BSD3
@@ -64,8 +64,8 @@ description:
   @darcs get@ <http://code.haskell.org/~basvandijk/code/usb-safe-examples>
 
 source-repository head
-  Type:     darcs
-  Location: http://code.haskell.org/~basvandijk/code/usb-safe
+  Type:     git
+  Location: git://github.com/basvandijk/usb-safe.git
 
 Library
   GHC-Options: -Wall -fno-warn-orphans

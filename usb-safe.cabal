@@ -64,6 +64,8 @@ description:
   .
   @git clone git://github.com/basvandijk/usb-safe-examples.git@
 
+extra-source-files: README.markdown, NEWS
+
 source-repository head
   Type:     git
   Location: git://github.com/basvandijk/usb-safe.git

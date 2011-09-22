@@ -156,8 +156,8 @@ module System.USB.Safe
     , ControlAction
     , RequestType(..)
     , control
-    , readControl, readControlExact
-    , writeControl
+    , readControl,  readControlExact
+    , writeControl, writeControlExact
 
       -- * String descriptors
     , getLanguages
@@ -257,7 +257,7 @@ import qualified System.USB.IO as USB
     ( Timeout, Status, Size
     , RequestType(Class, Vendor)
     , Recipient, Request, Value, Index
-    , control, readControl, readControlExact, writeControl
+    , control, readControl, readControlExact, writeControl, writeControlExact
     , readBulk,  readInterrupt
     , writeBulk, writeInterrupt
     )
@@ -1194,6 +1194,9 @@ type ControlAction α = RequestType
                      → USB.Index
                      → α
 
+type ReadExactAction  cr = USB.Size   → USB.Timeout → cr ByteString
+type WriteExactAction cr = ByteString → USB.Timeout → cr ()
+
 {-| Control transfers can have three request types: @Standard@, @Class@ and
 @Vendor@. We disallow @Standard@ requests however because with them you can
 destroy the safety guarantees that this module provides.
@@ -1253,17 +1256,16 @@ readControl regionalDevHndl = \reqType reqRecipient request value index → \tim
 -- specified number of bytes to read were actually read.
 -- Throws an 'USB.IOException' if this is not the case.
 readControlExact ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
-                 ⇒ RegionalDeviceHandle pr → ControlAction
-                     (USB.Size → USB.Timeout → cr ByteString)
-readControlExact regionalDevHndl = \reqType reqRecipient request value index → \timeout size →
+                 ⇒ RegionalDeviceHandle pr → ControlAction (ReadExactAction cr)
+readControlExact regionalDevHndl = \reqType reqRecipient request value index → \size timeout →
     liftIO $ USB.readControlExact (getInternalDevHndl regionalDevHndl)
                                   (reqTypeToInternal reqType)
                                   reqRecipient
                                   request
                                   value
                                   index
-                                  timeout
                                   size
+                                  timeout
 
 {-| Perform a USB /control/ write.
 
@@ -1277,16 +1279,30 @@ Exceptions:
 -}
 writeControl ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
              ⇒ RegionalDeviceHandle pr → ControlAction (WriteAction cr)
-writeControl regionalDevHndl = \reqType reqRecipient request value index → \timeout input →
+writeControl regionalDevHndl = \reqType reqRecipient request value index → \input timeout →
     liftIO $ USB.writeControl (getInternalDevHndl regionalDevHndl)
                               (reqTypeToInternal reqType)
                               reqRecipient
                               request
                               value
                               index
-                              timeout
                               input
+                              timeout
 
+-- | A convenience function similar to 'writeControl' which checks if the given
+-- bytes were actually fully written.
+-- Throws an 'incompleteWriteException' if this is not the case.
+writeControlExact ∷ ∀ pr cr. (pr `AncestorRegion` cr, MonadIO cr)
+                 ⇒ RegionalDeviceHandle pr → ControlAction (WriteExactAction cr)
+writeControlExact regionalDevHndl = \reqType reqRecipient request value index → \input timeout →
+    liftIO $ USB.writeControlExact (getInternalDevHndl regionalDevHndl)
+                                   (reqTypeToInternal reqType)
+                                   reqRecipient
+                                   request
+                                   value
+                                   index
+                                   input
+                                   timeout
 
 --------------------------------------------------------------------------------
 -- *** Standard Device Requests

@@ -56,7 +56,7 @@
 --
 -- See the @usb-safe-examples@ package for examples how to use this library:
 --
--- @git clone <git://github.com/basvandijk/usb-safe-examples.git>@
+-- @git clone <https://github.com/basvandijk/usb-safe-examples>@
 --
 --------------------------------------------------------------------------------
 

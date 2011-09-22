@@ -46,10 +46,6 @@
 --
 -- * You can't write to an endpoint with an 'In' transfer direction.
 --
--- * You can't read from or write to endpoints with the unsupported transfer
---   types 'Control' and 'Isochronous'. Only I/O with endpoints with the
---   supported 'Bulk' and 'Interrupt' transfer types is allowed.
---
 -- This modules makes use of a technique called /Lightweight monadic regions/
 -- invented by Oleg Kiselyov and Chung-chieh Shan
 --
@@ -60,7 +56,7 @@
 --
 -- See the @usb-safe-examples@ package for examples how to use this library:
 --
--- @darcs get@ <http://code.haskell.org/~basvandijk/code/usb-safe-examples>
+-- @git clone <git://github.com/basvandijk/usb-safe-examples.git>@
 --
 --------------------------------------------------------------------------------
 
@@ -147,11 +143,21 @@ module System.USB.Safe
     , ReadAction
     , WriteAction
 
+      -- ** Bulk and interrupt transfers
     , ReadEndpoint(readEndpoint)
     , WriteEndpoint(writeEndpoint)
 
     , EnumReadEndpoint(enumReadEndpoint)
 
+#ifdef HAS_EVENT_MANAGER
+      -- ** Isochronous transfers
+      -- | /WARNING:/ You need to enable the threaded runtime (@-threaded@) when using
+      -- the isochronous functions. They throw a runtime error otherwise!
+    , readIsochronousEndpoint
+    , writeIsochronousEndpoint
+
+    , enumReadIsochronousEndpoint
+#endif
       -- ** Control transfers
     , ControlAction
     , RequestType(..)
@@ -260,6 +266,9 @@ import qualified System.USB.IO as USB
     , control, readControl, readControlExact, writeControl, writeControlExact
     , readBulk,  readInterrupt
     , writeBulk, writeInterrupt
+#ifdef HAS_EVENT_MANAGER
+    , readIsochronous, writeIsochronous
+#endif
     )
 
 import qualified System.USB.IO.StandardDeviceRequests as USB
@@ -272,9 +281,14 @@ import qualified System.USB.Exceptions as USB
 import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
 #endif
 
--- from usb-enumerator:
+-- from usb-iteratee:
 import qualified System.USB.IO.Iteratee as USB
-    ( enumReadBulk, enumReadInterrupt )
+    ( enumReadBulk
+    , enumReadInterrupt
+#ifdef HAS_EVENT_MANAGER
+    , enumReadIsochronous
+#endif
+    )
 
 #if MIN_VERSION_base(4,3,0)
 import Control.Exception ( mask_ )
@@ -1162,7 +1176,7 @@ instance WriteEndpoint Interrupt where writeEndpoint = transferWith USB.writeInt
 
 --------------------------------------------------------------------------------
 
--- | Class of transfer types that support enumerating.
+-- | Class of transfer types that support enumeration.
 class EnumReadEndpoint transType where
     -- | An enumerator for an 'In' endpoint
     -- with either a 'Bulk' or 'Interrupt' transfer type.
@@ -1181,7 +1195,79 @@ class EnumReadEndpoint transType where
 instance EnumReadEndpoint Bulk      where enumReadEndpoint = wrap USB.enumReadBulk
 instance EnumReadEndpoint Interrupt where enumReadEndpoint = wrap USB.enumReadInterrupt
 
+#ifdef HAS_EVENT_MANAGER
+--------------------------------------------------------------------------------
 
+{-| Perform a USB /isochronous/ read.
+
+/WARNING:/ You need to enable the threaded runtime (@-threaded@) for this
+function to work correctly. It throws a runtime error otherwise!
+
+Exceptions:
+
+ * 'USB.PipeException' if the endpoint halted.
+
+ * 'USB.OverflowException' if the device offered more data,
+   see /Packets and overflows/ in the @libusb@ documentation:
+   <http://libusb.sourceforge.net/api-1.0/packetoverflow.html>.
+
+ * 'USB.NoDeviceException' if the device has been disconnected.
+
+ * Another 'USB.USBException'.
+-}
+readIsochronousEndpoint ∷ (pr `AncestorRegion` cr, MonadIO cr)
+                        ⇒ Endpoint In Isochronous sAlt pr
+                        → [USB.Size] -- ^ Sizes of isochronous packets
+                        → USB.Timeout
+                        → cr [ByteString]
+readIsochronousEndpoint (Endpoint internalDevHndl endpointDesc) sizes timeout =
+    liftIO $ USB.readIsochronous internalDevHndl
+                                 (USB.endpointAddress endpointDesc)
+                                 sizes
+                                 timeout
+
+{-| Perform a USB /isochronous/ write.
+
+/WARNING:/ You need to enable the threaded runtime (@-threaded@) for this
+function to work correctly. It throws a runtime error otherwise!
+
+Exceptions:
+
+ * 'USB.PipeException' if the endpoint halted.
+
+ * 'USB.OverflowException' if the device offered more data,
+   see /Packets and overflows/ in the @libusb@ documentation:
+   <http://libusb.sourceforge.net/api-1.0/packetoverflow.html>.
+
+ * 'USB.NoDeviceException' if the device has been disconnected.
+
+ * Another 'USB.USBException'.
+-}
+writeIsochronousEndpoint ∷ (pr `AncestorRegion` cr, MonadIO cr)
+                         ⇒ Endpoint Out Isochronous sAlt pr
+                         → [ByteString] -- ^ Sizes of isochronous packets
+                         → USB.Timeout
+                         → cr [USB.Size]
+writeIsochronousEndpoint (Endpoint internalDevHndl endpointDesc) isoPackets timeout =
+    liftIO $ USB.writeIsochronous internalDevHndl
+                                  (USB.endpointAddress endpointDesc)
+                                  isoPackets
+                                  timeout
+
+-- | Iteratee enumerator for reading /isochronous/ endpoints.
+--
+-- /WARNING:/ You need to enable the threaded runtime (@-threaded@) for this
+-- function to work correctly. It throws a runtime error otherwise!
+enumReadIsochronousEndpoint ∷ ∀ s pr cr sAlt α
+                            . ( ReadableChunk s Word8
+                              , pr `AncestorRegion` cr, MonadControlIO cr
+                              )
+                            ⇒ Endpoint In Isochronous sAlt pr
+                            → [USB.Size]
+                            → USB.Timeout
+                            → Enumerator [s] cr α
+enumReadIsochronousEndpoint = wrap USB.enumReadIsochronous
+#endif
 --------------------------------------------------------------------------------
 -- ** Control transfers
 --------------------------------------------------------------------------------

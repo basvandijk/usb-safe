@@ -47,10 +47,6 @@ description:
   .
   * You can't write to an endpoint with an In transfer direction.
   .
-  * You can't read from or write to endpoints with the unsupported transfer
-    types Control and Isochronous. Only I/O with endpoints with the Bulk and
-    Interrupt transfer types is allowed.
-  .
   The primary technique used in usb-safe is called \"Lightweight monadic
   regions\" which was invented by Oleg Kiselyov and Chung-chieh Shan.
   See:
@@ -83,3 +79,6 @@ Library
                , transformers              >= 0.2   && < 0.3
                , monad-control             >= 0.2   && < 0.3
   exposed-modules: System.USB.Safe
+
+  if impl(ghc>7) && !os(windows)
+    cpp-options: -DHAS_EVENT_MANAGER

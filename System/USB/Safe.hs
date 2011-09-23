@@ -185,7 +185,7 @@ module System.USB.Safe
 -- from base:
 import Control.Concurrent.MVar    ( MVar, newMVar, takeMVar, putMVar, withMVar )
 import Control.Monad              ( Monad, return, (>>=), (>>), liftM )
-import Control.Exception          ( Exception, bracket_ )
+import Control.Exception          ( Exception, throwIO, bracket_ )
 import Data.Typeable              ( Typeable )
 import Data.Function              ( ($) )
 import Data.Word                  ( Word8 )
@@ -214,10 +214,6 @@ import Data.Text                  ( Text )
 
 -- from transformers:
 import Control.Monad.IO.Class     ( MonadIO, liftIO )
-
--- from monad-control:
-import Control.Monad.IO.Control   ( MonadControlIO )
-import Control.Exception.Control  ( throwIO )
 
 -- from regions:
 import Control.Monad.Trans.Region.OnExit ( FinalizerHandle, onExit )
@@ -281,8 +277,8 @@ import qualified System.USB.Exceptions as USB
 import System.USB.Descriptors ( maxPacketSize, endpointMaxPacketSize )
 #endif
 
--- from usb-iteratee:
-import qualified System.USB.IO.Iteratee as USB
+-- from usb-safe (this package):
+import System.USB.Safe.Iteratee
     ( enumReadBulk
     , enumReadInterrupt
 #ifdef HAS_EVENT_MANAGER
@@ -297,7 +293,6 @@ import Control.Exception ( block )
 mask_ ∷ IO α → IO α
 mask_ = block
 #endif
-
 
 --------------------------------------------------------------------------------
 -- ** Regional device handles
@@ -332,7 +327,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-openDevice ∷ MonadControlIO pr
+openDevice ∷ RegionControlIO pr
            ⇒ USB.Device → RegionT s pr (RegionalDeviceHandle (RegionT s pr))
 openDevice dev = unsafeLiftIOOp_ mask_ $ do
                    h  ← liftIO $ USB.openDevice dev
@@ -343,7 +338,7 @@ openDevice dev = unsafeLiftIOOp_ mask_ $ do
 {-| Convenience function which opens the device, applies the given continuation
 function to the resulting regional device handle and runs the resulting region.
 -}
-withDevice ∷ MonadControlIO pr
+withDevice ∷ RegionControlIO pr
            ⇒ USB.Device
            → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
            → pr α
@@ -366,7 +361,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 withDeviceWhich ∷ ∀ pr α
-                . MonadControlIO pr
+                . RegionControlIO pr
                 ⇒ USB.Ctx
                 → (USB.DeviceDesc → Bool) -- ^ Predicate on the device descriptor.
                 → (∀ s. RegionalDeviceHandle (RegionT s pr) → RegionT s pr α)
@@ -382,7 +377,7 @@ withDeviceWhich ctx p f = do
     -- See: http://thread.gmane.org/gmane.comp.lang.haskell.glasgow.user/19134/focus=19153
     -- A solution is to just inline the code of useWhich: (I know this is ugly!)
   case find (p ∘ getDesc) devs of
-    Nothing  → throwIO USB.NotFoundException
+    Nothing  → liftIO $ throwIO USB.NotFoundException
     Just dev → withDevice dev f
 #endif
 
@@ -398,7 +393,7 @@ useWhich ∷ ∀ k desc e (m ∷ * → *) α
          → k             -- ^ Continuation function
          → m α
 useWhich ds w p f = case find (p ∘ getDesc) ds of
-                      Nothing → throwIO USB.NotFoundException
+                      Nothing → liftIO $ throwIO USB.NotFoundException
                       Just d  → w d f
 
 -- | Internally used function for getting the actual USB device handle from a
@@ -560,7 +555,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfig ∷ ∀ pr cr s α
-          . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+          . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
           ⇒ Config pr -- ^ The configuration you wish to set.
           → (∀ sCfg. ConfigHandle sCfg → RegionT s cr α) -- ^ Continuation function.
           → RegionT s cr α
@@ -626,7 +621,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveConfig ∷ ∀ pr cr s α
-                . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+                . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
                 ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device
                                           --   from which you want to use the
                                           --   active configuration.
@@ -672,7 +667,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setConfigWhich ∷ ∀ pr cr s α
-               . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+               . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
                ⇒ RegionalDeviceHandle pr -- ^ Regional handle to the device for
                                          --   which you want to set a
                                          --   configuration.
@@ -758,7 +753,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 claim ∷ ∀ pr sCfg s
-      . MonadControlIO pr
+      . RegionControlIO pr
       ⇒ Interface sCfg  -- ^ Interface you wish to claim
       → RegionT s pr
           (RegionalInterfaceHandle sCfg
@@ -770,7 +765,7 @@ claim interface@(Interface internalDevHndl ifNum _) = unsafeLiftIOOp_ mask_ $ do
   return $ RegionalInterfaceHandle interface mv ch
 
 withInterface ∷ ∀ pr sCfg α
-              . MonadControlIO pr
+              . RegionControlIO pr
               ⇒ Interface sCfg -- ^ The interface you wish to claim.
               → (∀ s. RegionalInterfaceHandle sCfg (RegionT s pr)
                     → RegionT s pr α
@@ -795,7 +790,7 @@ Exceptions:
 
 -}
 withInterfaceWhich ∷ ∀ pr sCfg α
-                   . MonadControlIO pr
+                   . RegionControlIO pr
                    ⇒ ConfigHandle sCfg      -- ^ Handle to a configuration of which
                                             --   you want to claim an interface.
                    → (USB.Interface → Bool) -- ^ Predicate on the interface descriptors.
@@ -875,7 +870,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternate ∷ ∀ pr cr s sCfg α
-             . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+             . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
              ⇒ Alternate sCfg pr -- ^ The alternate you wish to set.
              → (∀ sAlt. AlternateHandle sAlt pr → RegionT s cr α) -- ^ Continuation function.
              → RegionT s cr α
@@ -906,7 +901,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 useActiveAlternate ∷ ∀ pr cr s sCfg α
-                   . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+                   . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
                    ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                               --   interface from which you want
                                               --   to use the active alternate.
@@ -945,7 +940,7 @@ Exceptions:
  * Another 'USB.USBException'.
 -}
 setAlternateWhich ∷ ∀ pr cr sCfg s α
-                  . (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+                  . (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
                   ⇒ RegionalInterfaceHandle sCfg pr -- ^ Regional handle to the
                                                     --   interface for which you want
                                                     --   to set an alternate.
@@ -1180,7 +1175,7 @@ instance WriteEndpoint Interrupt where writeEndpoint = transferWith USB.writeInt
 class EnumReadEndpoint transType where
     -- | An enumerator for an 'In' endpoint
     -- with either a 'Bulk' or 'Interrupt' transfer type.
-    enumReadEndpoint ∷ ( pr `AncestorRegion` cr, MonadControlIO cr
+    enumReadEndpoint ∷ ( pr `AncestorRegion` cr, RegionControlIO cr
                        , ReadableChunk s Word8, NullPoint s
                        )
                      ⇒ Endpoint In transType sAlt pr
@@ -1192,8 +1187,8 @@ class EnumReadEndpoint transType where
                                    --   timeout, use value 0.
                      → Enumerator s cr α
 
-instance EnumReadEndpoint Bulk      where enumReadEndpoint = wrap USB.enumReadBulk
-instance EnumReadEndpoint Interrupt where enumReadEndpoint = wrap USB.enumReadInterrupt
+instance EnumReadEndpoint Bulk      where enumReadEndpoint = wrap enumReadBulk
+instance EnumReadEndpoint Interrupt where enumReadEndpoint = wrap enumReadInterrupt
 
 #ifdef HAS_EVENT_MANAGER
 --------------------------------------------------------------------------------
@@ -1260,13 +1255,13 @@ writeIsochronousEndpoint (Endpoint internalDevHndl endpointDesc) isoPackets time
 -- function to work correctly. It throws a runtime error otherwise!
 enumReadIsochronousEndpoint ∷ ∀ s pr cr sAlt α
                             . ( ReadableChunk s Word8
-                              , pr `AncestorRegion` cr, MonadControlIO cr
+                              , pr `AncestorRegion` cr, RegionControlIO cr
                               )
                             ⇒ Endpoint In Isochronous sAlt pr
                             → [USB.Size]
                             → USB.Timeout
                             → Enumerator [s] cr α
-enumReadIsochronousEndpoint = wrap USB.enumReadIsochronous
+enumReadIsochronousEndpoint = wrap enumReadIsochronous
 #endif
 --------------------------------------------------------------------------------
 -- ** Control transfers
@@ -1543,7 +1538,7 @@ Exceptions:
 
  * Another 'USB.USBException'.
 -}
-withDetachedKernelDriver ∷ (pr `AncestorRegion` RegionT s cr, MonadControlIO cr)
+withDetachedKernelDriver ∷ (pr `AncestorRegion` RegionT s cr, RegionControlIO cr)
                          ⇒ RegionalDeviceHandle pr
                          → USB.InterfaceNumber
                          → RegionT s cr α

@@ -1,5 +1,5 @@
 name:          usb-safe
-version:       0.14
+version:       0.14.0.1
 cabal-version: >=1.6
 build-type:    Custom
 license:       BSD3

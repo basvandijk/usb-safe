@@ -329,11 +329,12 @@ Exceptions:
 -}
 openDevice ∷ RegionControlIO pr
            ⇒ USB.Device → RegionT s pr (RegionalDeviceHandle (RegionT s pr))
-openDevice dev = unsafeLiftIOOp_ mask_ $ do
-                   h  ← liftIO $ USB.openDevice dev
-                   mv ← liftIO $ newMVar False
-                   ch ← onExit $ USB.closeDevice h
-                   return $ RegionalDeviceHandle h mv ch
+openDevice dev = unsafeControlIO $ \runInIO → mask_ $ do
+                   h  ← USB.openDevice dev
+                   mv ← newMVar False
+                   runInIO $ do
+                     ch ← onExit $ USB.closeDevice h
+                     return $ RegionalDeviceHandle h mv ch
 
 {-| Convenience function which opens the device, applies the given continuation
 function to the resulting regional device handle and runs the resulting region.
@@ -758,11 +759,13 @@ claim ∷ ∀ pr sCfg s
       → RegionT s pr
           (RegionalInterfaceHandle sCfg
             (RegionT s pr))
-claim interface@(Interface internalDevHndl ifNum _) = unsafeLiftIOOp_ mask_ $ do
-  mv ← liftIO $ newMVar False
-  liftIO $ USB.claimInterface internalDevHndl ifNum
-  ch ← onExit $ USB.releaseInterface internalDevHndl ifNum
-  return $ RegionalInterfaceHandle interface mv ch
+claim interface@(Interface internalDevHndl ifNum _) =
+    unsafeControlIO $ \runInIO → mask_ $ do
+      mv ← newMVar False
+      USB.claimInterface internalDevHndl ifNum
+      runInIO $ do
+        ch ← onExit $ USB.releaseInterface internalDevHndl ifNum
+        return $ RegionalInterfaceHandle interface mv ch
 
 withInterface ∷ ∀ pr sCfg α
               . RegionControlIO pr
